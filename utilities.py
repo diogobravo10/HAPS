@@ -3,9 +3,10 @@ import matplotlib.pyplot as plt
 from solarpy import irradiance_on_plane
 from datetime import datetime, timedelta
 
+vnorm = np.array([0, 0, -1])  # plane pointing zenith
 
 
-def daily_irradiance(h, lat, start_date, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
+def daily_irradiance(h, lat, start_date, solar_cell_efficiency=0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
     dates = []
     current = start_date
  
@@ -22,8 +23,11 @@ def daily_irradiance(h, lat, start_date, vnorm = np.array([0, 0, -1]), step=time
     energy_j_per_m2 = np.trapezoid(G, t)
 
     # Wh/m²
-    energy_wh_per_m2 = energy_j_per_m2 / 3600.0
-    return energy_wh_per_m2
+    energy_wh_per_m2 = energy_j_per_m2 / 3600.0  
+    
+    power_density_available = energy_wh_per_m2 / 24.0 * solar_cell_efficiency
+    
+    return power_density_available
 
 
 
@@ -48,10 +52,11 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
                 h,
                 current_lat,
                 current_day,
+                solar_cell_efficiency=solar_cell_efficiency,
                 step=step,
             )
 
-            mean_power_distribution[lat_idx, day_idx] = daily_energy / 24.0 * solar_cell_efficiency
+            mean_power_distribution[lat_idx, day_idx] = daily_energy
 
             print(f'Processed latitude {current_lat:.2f} deg, day {day_number}/{total_days}: mean power = {mean_power_distribution[lat_idx, day_idx]:.2f} W/m²')
 
@@ -65,6 +70,12 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
     ax.set_title('Mean power distribution')
     ax.set_xlim(1, total_days)
 
+    square_x = [1, 1, 365, 365, 1]
+    square_y = [33, 43, 43, 33, 33]
+    ax.plot(square_x, square_y, color='red', linewidth=2, label='Azores EEZ')
+    ax.scatter(355, 43, marker='x', color='red', s=150, linewidths=2)
+    ax.legend(loc='upper right')
+
     fig.colorbar(contour, ax=ax, ticks=levels, label='Mean power (W/m²)')
     plt.tight_layout()
     plt.savefig('mean_power_distribution.png', dpi=200)
@@ -72,3 +83,5 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
 
     print('Contour image saved to mean_power_distribution.png')
     print('Mean power distribution shape:', mean_power_distribution.shape)
+
+
