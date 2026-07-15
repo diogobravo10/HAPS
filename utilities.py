@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from solarpy import irradiance_on_plane
+from solarpy import daylight_hours, irradiance_on_plane
+from datetime import datetime, timedelta
+from ambiance import Atmosphere
 from datetime import datetime, timedelta
 
 vnorm = np.array([0, 0, -1])  # plane pointing zenith
@@ -28,9 +30,6 @@ def daily_irradiance(h, lat, start_date, solar_cell_efficiency=0.15, vnorm = np.
     power_density_available = energy_wh_per_m2 / 24.0 * solar_cell_efficiency
     
     return power_density_available
-
-
-
 
 
 def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
@@ -85,3 +84,75 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
     print('Mean power distribution shape:', mean_power_distribution.shape)
 
 
+def obj_fun(x):
+
+    score = 0
+    M_Sw, Mbat_Sw = x[0], x[1]
+
+    h_start = 2000
+    h_end = 2400
+    dh = 5
+    h_array = np.arange(h_start, h_end + dh, h_end, dtype=float)
+
+
+    date_start = datetime(2027, 1, 1, 0, 0)
+    date_end = datetime(2028, 1, 1, 0, 0)
+    dday = 5
+    day_array = np.array([
+        date_start + timedelta(days=i)
+        for i in range(0, (date_end - date_start).days + dday, dday)
+    ], dtype=object)
+
+    N_lat = 80
+    S_lat = -80
+    dlat = 5
+    lat_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
+
+    carrying_ability = 0.2
+
+
+    # Propolsion/Energy System
+    mb = 450 # [Wh/Kg] -> energy density LS-battery
+    mu_m = 0.6 # effficiency propulsion system 
+    mu_e = 0.9 # efficiency energy management system
+    mu_LS = 0.9 # efficiency LS-battery
+    k_prop = 0.0045 # [kg/W] -> propeller mass2power ratio (empyrical relation)
+
+    # Aerodynamic Parametrs
+    CL = 1.5
+    CD = 0.0708
+    g = 9.81
+
+    for h in h_array:
+
+        for lat in lat_array:
+
+            for day in day_array:
+
+
+                P_mean = daily_irradiance(h, lat, day)
+                T_night = (24 - daylight_hours(day, lat))
+                atm = Atmosphere(h)
+                rho = atm.density[0] # [kg/m3] -> air density at altitude h
+
+
+                if Mbat_Sw >= P_mean * T_night / mu_LS / mb: # There is enough Mass of Batteries to Power the flight through the night
+
+
+                    if P_mean * mu_m * mu_e >= CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho): # There is enough Irradiance to Power the Flight
+
+
+                        P_available = min(Mbat_Sw / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+
+                        if k_prop * P_available < carrying_ability * M_Sw:
+
+
+                            if 0.8 * M_Sw - Mbat_Sw > 0.5:
+
+                                score = score + 1
+
+                                print(score)
+
+
+
+    return -score
