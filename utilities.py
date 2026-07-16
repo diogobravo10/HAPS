@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from solarpy import daylight_hours, irradiance_on_plane
 from datetime import datetime, timedelta
 from ambiance import Atmosphere
@@ -87,9 +88,36 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
     print('Contour image saved to mean_power_distribution.png')
     print('Mean power distribution shape:', mean_power_distribution.shape)
 
-def filtering_yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
+def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and_location, user_params, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
 
-    mean_power_distribution = np.zeros((len(latitudes), len(days)))
+    M_Sw_opt = optimum_mass_properties.M_Sw
+    Mbat_Sw_opt = optimum_mass_properties.Mbat_Sw
+
+    h = global_time_and_location.h
+    start_date = global_time_and_location.start_date
+    end_date = global_time_and_location.end_date
+    dday = global_time_and_location.dday
+    N_lat = global_time_and_location.N_lat
+    S_lat = global_time_and_location.S_lat
+    dlat = global_time_and_location.dlat
+
+    carrying_ability = user_params.carrying_ability
+    mb = user_params.mb
+    k_prop = user_params.k_prop
+    mu_m = user_params.mu_m
+    mu_e = user_params.mu_e
+    mu_LS = user_params.mu_LS
+    CD = user_params.CD
+    CL = user_params.CL
+    g = user_params.g
+    
+    
+    
+    days = np.array([
+        start_date + timedelta(days=i)
+        for i in range(0, (end_date - start_date).days + dday, dday)
+    ], dtype=object)
+
     start_day = days[0]
     total_days = (days[-1] - start_day).days + 1
     day_numbers = np.array([
@@ -97,27 +125,14 @@ def filtering_yearly_mean_power_contour(h, latitudes, days, solar_cell_efficienc
         for current_day in days
     ], dtype=int)
 
-
-    M_Sw = 3.1
-    Mbat_Sw = 2.1
-
-    # Propolsion/Energy System
-    mb = 450 # [Wh/Kg] -> energy density LS-battery
-    mu_m = 0.6 # effficiency propulsion system 
-    mu_e = 0.9 # efficiency energy management system
-    mu_LS = 0.9 # efficiency LS-battery
-    k_prop = 0.0045 # [kg/W] -> propeller mass2power ratio (empyrical relation)
-
-    # Aerodynamic Parametrs
-    CL = 1.5
-    CD = 0.0708
-    g = 9.81
+    latitudes = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
 
     atm = Atmosphere(h)
     rho = atm.density[0] # [kg/m3] -> air density at altitude h
 
+    mean_power_distribution = np.zeros((len(latitudes), len(days)))
 
-    
+
     for lat_idx, lat in enumerate(latitudes):
         for day_idx, current_day in enumerate(days):
             current_lat = lat
@@ -133,7 +148,7 @@ def filtering_yearly_mean_power_contour(h, latitudes, days, solar_cell_efficienc
 
             T_night = (24 - daylight_hours(current_day, current_lat))
 
-            P_available = min(Mbat_Sw / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+            P_available = min(Mbat_Sw_opt / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw_opt)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
 
             mean_power_distribution[lat_idx, day_idx] = daily_energy if daily_energy > P_available else 0
 
@@ -154,14 +169,29 @@ def filtering_yearly_mean_power_contour(h, latitudes, days, solar_cell_efficienc
 
     square_x = [1, 1, 365, 365, 1]
     square_y = [33, 43, 43, 33, 33]
-    ax.plot(square_x, square_y, color='red', linewidth=2, label='Azores EEZ')    
+    line_azores, = ax.plot(square_x, square_y, color='red', linewidth=2, label='Azores EEZ')    
     
+    patch_azores = Patch(
+        facecolor='none',
+        edgecolor=line_azores.get_color(),
+        linewidth=line_azores.get_linewidth(),
+        label=line_azores.get_label()
+    )
+
     square_x = [1, 1, 365, 365, 1]
     square_y = [-28, -10, -10, -28, -28]
-    ax.plot(square_x, square_y, color='orange', linewidth=2, label='Mozambique EEZ')
+    line_moz, = ax.plot(square_x, square_y, color='orange', linewidth=2, label='Mozambique EEZ')
+    
+    patch_moz = Patch(
+        facecolor='none',
+        edgecolor=line_moz.get_color(),
+        linewidth=line_moz.get_linewidth(),
+        label=line_moz.get_label()
+    )
 
-    ax.scatter(355, 43, marker='x', color='red', s=150, linewidths=2)
-    ax.legend(loc='upper right')
+    ax.legend(handles=[patch_azores, patch_moz], loc='upper right')
+
+    # ax.scatter(355, 43, marker='x', color='red', s=150, linewidths=2)
 
     fig.colorbar(contour, ax=ax, ticks=levels, label='Mean power (W/m²)')
     plt.tight_layout()
@@ -172,7 +202,7 @@ def filtering_yearly_mean_power_contour(h, latitudes, days, solar_cell_efficienc
     print(f'Contour image saved to {filename}')
     print('Mean power distribution shape:', mean_power_distribution.shape)
 
-def feasibility_study(x_values, optimum_mass_properties, time_and_location, user_params):
+def feasibility_study(x_values, optimum_mass_properties, time_and_location, user_params, solar_cell_efficiency=0.15):
 
 
     M_Sw_opt = optimum_mass_properties.M_Sw
@@ -213,7 +243,7 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
     y_values_batteries = x_values * (mu_LS * mb/ T_night)
     line_battery_mass, = ax.plot(x_values, y_values_batteries, label="Min. Battery Mass", color='magenta')
 
-    P_mean = daily_irradiance(h, lat, day)
+    P_mean = daily_irradiance(h, lat, day, solar_cell_efficiency)
     line_max_power = ax.axhline(P_mean, color='red', label='Max. Power')
     unfeasible_region = ax.axhspan(P_mean, ax.get_ylim()[1], color='grey', alpha=0.3, label='Unfeasible region')
 

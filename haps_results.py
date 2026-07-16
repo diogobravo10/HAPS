@@ -25,6 +25,22 @@ class TimeLocation:
     def __getitem__(self, key):
         return getattr(self, key)
 
+
+
+@dataclass(slots=True)
+class GlobalTimeLocation:
+    h = 20000  # altitude in meters
+    start_date = datetime(2027, 1, 1, 0, 0)
+    end_date = datetime(2028, 1, 1, 0, 0)
+    dday = 5
+    N_lat = 60
+    S_lat = -60
+    dlat = 5
+    
+    def __getitem__(self, key):
+        return getattr(self, key)
+    
+
 @dataclass(slots=True)
 class UserDefinedParamters:
     carrying_ability: float = 0.2 # -> historical guideline
@@ -46,9 +62,12 @@ if __name__ == '__main__':
 
     user_defined_parameters = UserDefinedParamters()
     time_and_location_parameters = TimeLocation()
+    global_time_and_location_parameters = GlobalTimeLocation()
     mass_properties = MassProperties()
 
     wing_loading_array = np.linspace(0, 5, 1000) # -> loading (kg/m^2)
 
 
-    utils.feasibility_study(wing_loading_array, mass_properties, time_and_location_parameters, user_defined_parameters)
+    utils.feasibility_study(wing_loading_array, mass_properties, time_and_location_parameters, user_defined_parameters, solar_cell_efficiency=0.15)
+
+    utils.filtering_yearly_mean_power_contour(mass_properties, global_time_and_location_parameters, user_defined_parameters, solar_cell_efficiency=0.15)
