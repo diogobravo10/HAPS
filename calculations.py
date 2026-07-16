@@ -8,29 +8,17 @@ import matplotlib.pyplot as plt
 
 
 
-# solar_cell_efficiency = 0.15
-
-# # Irradiance on a given day
-# h = 20000  # altitude in meters
-# lat = 43
-
-# P_mean = utils.daily_irradiance(h, lat, datetime(2027, 12, 21, 0, 0))
-# print(P_mean)
-
-
-day = datetime(2027, 3, 21, 0, 0)
+day = datetime(2027, 1, 21, 0, 0)
 h = 20000  # altitude in meters
-lat = 43 # latitude in degrees
+lat = 33 # latitude in degrees
 
-carrying_ability = 0.1 # -> historical guideline
+carrying_ability = 0.2 # -> historical guideline
 mb = 450 # [Wh/Kg] -> energy density LS-battery
 k_prop = 0.0045 # [kg/W] -> propeller mass2power ratio (empyrical relation)
-
 
 mu_m = 0.6 # effficiency propulsion system 
 mu_e = 0.9 # efficiency energy management system
 mu_LS = 0.9 # efficiency LS-battery
-
 
 # Aerodynamic Parametrs
 CL = 1.5
@@ -39,9 +27,10 @@ g = 9.81
 atm = Atmosphere(h)
 rho = atm.density[0] # [kg/m3] -> air density at altitude h
 
-
 x_values = np.linspace(0, 5, 1000) # -> loading (kg/m^2)
 
+
+# Tracing Curves for Wing Loading, Battery Mass, Propulsion Mass, Payload Mass, and Non-Structural Mass
 y_values_wing_loading = CD/CL**(3/2) * x_values**(3/2) * np.sqrt(2*g**3/rho) / mu_m /mu_e
 y_values_batteries = x_values * (mu_LS * mb/ (24 - daylight_hours(day, lat)))
 y_values_propolsion = x_values / k_prop
@@ -74,6 +63,22 @@ plt.fill_betweenx(
 
 plt.axhspan(P_mean, plt.ylim()[1], color='grey', alpha=0.3, label='Unfeasible region')
 
+
+
+M_Sw = 3.1
+Mbat_Sw = 2.1
+T_night = (24 - daylight_hours(day, lat))
+
+P_available = min(Mbat_Sw / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+
+
+
+plt.plot(Mbat_Sw, P_available, marker='*', color='b', linestyle='None', label="Battery Mass")
+plt.plot(M_Sw, P_available, marker='*', color='orange', linestyle='None', label="Total Mass")
+
+
+
+
 plt.xlim(0, 5)
 plt.ylim(0, 100)
 
@@ -82,11 +87,33 @@ plt.ylabel("Available Power (W/m^2)")
 plt.title("Battery Mass vs. Wing Loading")
 plt.grid(True)
 plt.legend()
-plt.show(block=True)
+plt.show()
 
 
 
+h = 20000
 
+
+start_date = datetime(2027, 1, 1, 0, 0)
+end_date = datetime(2028, 1, 1, 0, 0)
+dday = 5
+days = np.array([
+    start_date + timedelta(days=i)
+    for i in range(0, (end_date - start_date).days + dday, dday)
+], dtype=object)
+
+N_lat = 60
+S_lat = -60
+dlat = 5
+latitudes = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
+
+
+
+solar_cell_efficiency = 0.15
+
+
+
+utils.filtering_yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency=solar_cell_efficiency)
 
 
 
