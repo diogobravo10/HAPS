@@ -164,7 +164,7 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
 
     ax.set_xlabel('Day of year')
     ax.set_ylabel('Latitude (deg)')
-    ax.set_title('Mean power distribution')
+    ax.set_title(f'Mean power distribution at h = {h}')
     ax.set_xlim(1, total_days)
 
     square_x = [1, 1, 365, 365, 1]

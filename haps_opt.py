@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from scipy.optimize import brute
 
 
-ranges = (slice(0.1, 5.1, 0.2), slice(0.1, 5.1, 0.2))  # Define the ranges for M_Sw and Mbat_Sw
+ranges = (slice(1.0, 4.0, 0.2), slice(1.0, 4.0, 0.2))  # Define the ranges for M_Sw and Mbat_Sw
 
 
 result = brute(utils.obj_fun, ranges, finish=None) # I need more constraints

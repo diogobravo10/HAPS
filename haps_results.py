@@ -18,7 +18,7 @@ class MassProperties:
     
 @dataclass(slots=True)
 class TimeLocation:
-    day = datetime(2027, 6, 21, 0, 0)
+    day = datetime(2027, 12, 21, 0, 0)
     h = 20000  # altitude in meters
     lat = 33 # latitude in degrees
     
