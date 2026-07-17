@@ -1,5 +1,5 @@
-import user_defined_parameters as user
-import utilities as utils
+import _user_defined_parameters as user
+import _utilities as utils
 import numpy as np
 from solarpy import irradiance_on_plane, daylight_hours
 from ambiance import Atmosphere
