@@ -505,6 +505,10 @@ def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_effic
     score = 0
     M_Sw, Mbat_Sw = design_vars[0], design_vars[1]
 
+    if M_Sw < Mbat_Sw:
+        
+        return 1e9
+
     start_h = global_time_and_location.start_h
     end_h = global_time_and_location.end_h
     dh = global_time_and_location.dh
@@ -575,10 +579,10 @@ def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_effic
 
                         if k_prop * P_prop < carrying_ability * M_Sw: # There is enough mass for payload and the payload is heavier than the propolsion system
 
-                            if 0.8 * M_Sw - Mbat_Sw > 0.2: # There is enough mass for the structure
+                            if 0.8 * M_Sw - Mbat_Sw > 0.4: # There is enough mass for the structure
 
                                 score = score + 1
-                                print(score)
+                                print(f'score = {score}', end=', ', flush=True)
                                 day_verified = True
                                 break
 
