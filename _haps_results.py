@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 if __name__ == '__main__':
 
     payload_mass = 5 # [kg]
-    mass_properties = user.get_mass_properties(M_Sw = 2.9, Mbat_Sw = 2.0)
+    # mass_properties = user.get_mass_properties(M_Sw = 2.76, Mbat_Sw = 2.0)
+    mass_properties = user.get_mass_properties(M_Sw = 2.33, Mbat_Sw = 1.63)
     time_and_location = user.get_time_location(day = datetime(2027, 6, 21, 0, 0), lat = 33, h = 23000)
 
 
