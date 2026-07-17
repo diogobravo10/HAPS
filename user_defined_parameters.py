@@ -29,14 +29,16 @@ class TimeLocation:
         return getattr(self, key)
 
 @dataclass(slots=True)
-class GlobalTimeLocation:
-    h: list[float]
+class FlightEnvelope:
+    start_h: float
+    end_h: float
+    dh: float
     start_date: datetime
     end_date: datetime
     dday: int
     N_lat: float
     S_lat: float
-    dlat: int
+    dlat: float
     
     def __getitem__(self, key):
         return getattr(self, key)
@@ -108,11 +110,7 @@ def get_user_defined_parameters():
     return user_params
 
 
-def get_time_location():
-
-    day = datetime(2027, 6, 21, 0, 0)
-    h = [23000]  # altitude in meters
-    lat = 33 # latitude in degrees
+def get_time_location(day, lat, h):
 
     t_l = TimeLocation(
     day = day,
@@ -125,7 +123,9 @@ def get_time_location():
 
 def get_global_time_location(dday):
 
-    h = [20000]  # altitude in meters
+    start_h = 20000  # Constant Altitude
+    end_h = 20000  
+    dh = 10 
     start_date = datetime(2027, 1, 1, 0, 0)
     end_date = datetime(2028, 1, 1, 0, 0)
     dday = dday
@@ -133,8 +133,10 @@ def get_global_time_location(dday):
     S_lat = -60
     dlat = 5
 
-    g_t_l = GlobalTimeLocation(
-        h = h,
+    g_t_l = FlightEnvelope(
+        start_h = start_h,
+        end_h = end_h,
+        dh = dh,
         start_date = start_date,
         end_date = end_date,
         dday = dday,
@@ -146,9 +148,11 @@ def get_global_time_location(dday):
     return g_t_l
 
 
-def get_azores_time_location(dday):
+def get_azores_flight_envelope(dday):
 
-    h = [20000]  # altitude in meters
+    start_h = 20000  # Constant Altitude
+    end_h = 24000  
+    dh = 1000 
     start_date = datetime(2027, 1, 1, 0, 0)
     end_date = datetime(2028, 1, 1, 0, 0)
     dday = dday
@@ -156,8 +160,10 @@ def get_azores_time_location(dday):
     S_lat = 33
     dlat = 2
 
-    g_t_l = GlobalTimeLocation(
-        h = h,
+    g_t_l = FlightEnvelope(
+        start_h = start_h,
+        end_h = end_h,
+        dh = dh,
         start_date = start_date,
         end_date = end_date,
         dday = dday,
@@ -167,4 +173,3 @@ def get_azores_time_location(dday):
     )
 
     return g_t_l
-

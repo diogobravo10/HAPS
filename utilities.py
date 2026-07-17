@@ -94,7 +94,9 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
     M_Sw_opt = optimum_mass_properties.M_Sw
     Mbat_Sw_opt = optimum_mass_properties.Mbat_Sw
 
-    h = global_time_and_location.h
+    start_h = global_time_and_location.start_h
+    end_h = global_time_and_location.end_h
+    dh = global_time_and_location.dh
     start_date = global_time_and_location.start_date
     end_date = global_time_and_location.end_date
     dday = global_time_and_location.dday
@@ -127,8 +129,9 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
     ], dtype=int)
 
     latitudes_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
+    h_array = np.arange(start_h, end_h + dh, dh, dtype=float)
 
-    atm = Atmosphere(h)
+    atm = Atmosphere(h_array[0])
     rho = atm.density[0] # [kg/m3] -> air density at altitude h
 
     mean_power_distribution = np.zeros((len(latitudes_array), len(days_array)))
@@ -138,7 +141,7 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
         for day_idx, current_day in enumerate(days_array):
             current_lat = lat
             day_number = day_numbers[day_idx]
-            current_h = h[0]
+            current_h = h_array[0]
             daily_energy = daily_irradiance(
                 current_h,
                 current_lat,
@@ -165,7 +168,7 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
 
     ax.set_xlabel('Day of year')
     ax.set_ylabel('Latitude (deg)')
-    ax.set_title(f'Mean power distribution at h = {h}')
+    ax.set_title(f'Mean power distribution at h = {h_array[0]}')
     ax.set_xlim(1, total_days)
 
     square_x = [1, 1, 365, 365, 1]
@@ -196,7 +199,7 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
 
     fig.colorbar(contour, ax=ax, ticks=levels, label='Mean power (W/m²)')
     plt.tight_layout()
-    filename = f'mean_power_distribution_{h}.png'
+    filename = f'mean_power_distribution_{h_array[0]}.png'
     plt.savefig(filename, dpi=200)
     plt.close(fig)
 
@@ -220,7 +223,7 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
     g = user_params.g
 
     day = time_and_location.day
-    h = time_and_location.h[0]
+    h = time_and_location.h
     lat = time_and_location.lat
 
     atm = Atmosphere(h)
@@ -332,7 +335,7 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
     ax.set_ylim(0, 100)
 
     ax.set_xlabel("Wing Loading (kg/m^2)")
-    ax.set_title("Mass Properties vs. Solar Irradiance")
+    ax.set_title("Trade-Off Study: Mass vs Solar Irradiance")
 
     ax.set_ylabel("Solar Irradiance (W/m²)", color='red')
     ax.tick_params(axis='y', colors='red')
@@ -363,12 +366,57 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
 
     return
 
+def mission_planning(payload_mass, optimum_mass_properties, time_and_location, user_params):
+
+    M_Sw_opt = optimum_mass_properties.M_Sw
+    Mbat_Sw_opt = optimum_mass_properties.Mbat_Sw
+
+    carrying_ability = user_params.carrying_ability
+    mb = user_params.mb
+    k_prop = user_params.k_prop
+    mu_m = user_params.mu_m
+    mu_e = user_params.mu_e
+    mu_LS = user_params.mu_LS
+    CD = user_params.CD
+    CL = user_params.CL
+    g = user_params.g
+
+    day = time_and_location.day
+    h = time_and_location.h[0]
+    lat = time_and_location.lat
+
+    atm = Atmosphere(h)
+    rho = atm.density[0] # [kg/m3] -> air density at altitude h
+
+    T_night = (24 - daylight_hours(day, lat))
+
+    # P_prop = -np.inf
+    # for day in days_array:
+    #     for lat in latitudes_array:
+    #         for h in h_array:
+
+    #             T_night = (24 - daylight_hours(day, lat))
+    #             atm = Atmosphere(h)
+    #             rho = atm.density[0] # [kg/m3] -> air density at altitude h
+
+    #             P_available = min(Mbat_Sw / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+                
+    #             if P_available > P_prop:
+    #                 P_prop = P_available
+    # mpayload_SW = carrying_ability * M_Sw_opt -  k_prop * P_available
+
+
+    return
+
+
 def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_efficiency=0.15):
 
     score = 0
     M_Sw, Mbat_Sw = design_vars[0], design_vars[1]
 
-    h_array = global_time_and_location.h
+    start_h = global_time_and_location.start_h
+    end_h = global_time_and_location.end_h
+    dh = global_time_and_location.dh
     start_date = global_time_and_location.start_date
     end_date = global_time_and_location.end_date
     dday = global_time_and_location.dday
@@ -399,10 +447,21 @@ def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_effic
     ], dtype=int)
 
     latitudes_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
+    h_array = np.arange(start_h, end_h + dh, dh, dtype=float)
 
-    atm = Atmosphere(h_array)
-    rho = atm.density[0] # [kg/m3] -> air density at altitude h
+    P_prop = -np.inf
+    for day in days_array:
+        for lat in latitudes_array:
+            for h in h_array:
 
+                T_night = (24 - daylight_hours(day, lat))
+                atm = Atmosphere(h)
+                rho = atm.density[0] # [kg/m3] -> air density at altitude h
+
+                P_available = min(Mbat_Sw / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+                
+                if P_available > P_prop:
+                    P_prop = P_available
 
     for day in days_array:
         day_verified = False
@@ -421,14 +480,9 @@ def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_effic
 
                 if Mbat_Sw >= P_mean * T_night / mu_LS / mb: # There is enough Mass of Batteries to Power the flight through the night
 
-
                     if P_mean * mu_m * mu_e >= CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho): # There is enough Irradiance to Power the Flight
 
-
-                        P_available = min(Mbat_Sw / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
-
-                        if k_prop * P_available < carrying_ability * M_Sw: # There is enough mass for payload and the payload is heavier than the propolsion system
-
+                        if k_prop * P_prop < carrying_ability * M_Sw: # There is enough mass for payload and the payload is heavier than the propolsion system
 
                             if 0.8 * M_Sw - Mbat_Sw > 0.2: # There is enough mass for the structure
 
@@ -436,10 +490,6 @@ def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_effic
                                 print(score)
                                 day_verified = True
                                 break
-
-
-
-
 
 
     return -score
