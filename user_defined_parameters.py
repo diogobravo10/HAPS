@@ -68,10 +68,10 @@ class UserDefinedParamters:
 #############################################################################
 
 
-def get_mass_properties():
+def get_mass_properties(M_Sw, Mbat_Sw):
 
-    m_sw = 3.1 
-    mbat_sw = 2.1
+    m_sw = M_Sw
+    mbat_sw = Mbat_Sw
 
     mass = MassProperties(
             M_Sw = m_sw,
@@ -123,12 +123,12 @@ def get_time_location():
     return t_l
 
 
-def get_global_time_location():
+def get_global_time_location(dday):
 
     h = [20000]  # altitude in meters
     start_date = datetime(2027, 1, 1, 0, 0)
     end_date = datetime(2028, 1, 1, 0, 0)
-    dday = 5
+    dday = dday
     N_lat = 60
     S_lat = -60
     dlat = 5
@@ -146,12 +146,12 @@ def get_global_time_location():
     return g_t_l
 
 
-def get_azores_time_location():
+def get_azores_time_location(dday):
 
     h = [20000]  # altitude in meters
     start_date = datetime(2027, 1, 1, 0, 0)
     end_date = datetime(2028, 1, 1, 0, 0)
-    dday = 5
+    dday = dday
     N_lat = 43
     S_lat = 33
     dlat = 2

@@ -10,11 +10,11 @@ from dataclasses import dataclass, field
 
 if __name__ == '__main__':
 
-    mass_properties = user.get_mass_properties()
+    mass_properties = user.get_mass_properties(M_Sw = 2.9, Mbat_Sw = 2.0)
     user_defined_parameters = user.get_user_defined_parameters()
     time_and_location_parameters = user.get_time_location()
-    global_time_and_location_parameters = user.get_global_time_location()
-    azores_time_and_location_parameters = user.get_azores_time_location()
+    global_time_and_location_parameters = user.get_global_time_location(dday = 5) # dday -> resolution
+    azores_time_and_location_parameters = user.get_azores_time_location(dday = 1) # dday -> resolution
 
     wing_loading_array = np.linspace(0, 5, 1000) # -> loading (kg/m^2)
 

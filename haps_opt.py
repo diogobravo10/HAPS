@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 ranges = (slice(1.0, 4.0, 0.5), slice(1.0, 4.0, 0.5))  # Define the ranges for M_Sw and Mbat_Sw
 
 user_defined_parameters = user.get_user_defined_parameters()
-azores_time_and_location_parameters = user.get_azores_time_location()
+azores_time_and_location_parameters = user.get_azores_time_location(dday = 5)
 solar_cell_efficiency = 0.15
 
 result = brute(utils.obj_fun, ranges, args= (azores_time_and_location_parameters, user_defined_parameters, solar_cell_efficiency), finish=None) # I need more constraints
