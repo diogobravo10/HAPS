@@ -87,7 +87,6 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
     plt.close(fig)
 
     print('Contour image saved to mean_power_distribution.png')
-    print('Mean power distribution shape:', mean_power_distribution.shape)
 
 def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and_location, user_params, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
 
@@ -199,12 +198,13 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
 
     fig.colorbar(contour, ax=ax, ticks=levels, label='Mean power (W/m²)')
     plt.tight_layout()
-    filename = f'mean_power_distribution_{h_array[0]}.png'
+    filename = f'fig_mean_power_distribution_{h_array[0]}.png'
     plt.savefig(filename, dpi=200)
-    plt.close(fig)
+    plt.show(block=False)
+
 
     print(f'Contour image saved to {filename}')
-    print('Mean power distribution shape:', mean_power_distribution.shape)
+
 
 def feasibility_study(x_values, optimum_mass_properties, time_and_location, user_params, solar_cell_efficiency=0.15):
 
@@ -314,7 +314,7 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
     #                                                                           #
     #############################################################################
 
-    P_available = min(Mbat_Sw_opt / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw_opt)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+    P_available = min(Mbat_Sw_opt / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw_opt)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e) # P_prop_installed > P_bat or P_used
     non_structural_mass = carrying_ability * M_Sw_opt + Mbat_Sw_opt
 
     line_available_power = ax.axhline(P_available, color='blue', linestyle='--', label='Available Power')
@@ -362,14 +362,33 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
         dp_battery_mass,
         dp_non_structural_mass
     ])
-    plt.show()
+    plt.show(block=False)
+
+    filename = f'fig_feasibility_plot.png'
+    plt.savefig(filename, dpi=200)
+
+    print(f'Contour image saved to {filename}')
 
     return
 
-def mission_planning(payload_mass, optimum_mass_properties, time_and_location, user_params):
+def mission_planning(optimum_mass_properties, time_and_location, flight_envelope_time_and_location, user_params, payload_mass = None, Sw = None, solar_cell_efficiency=0.15):
 
     M_Sw_opt = optimum_mass_properties.M_Sw
     Mbat_Sw_opt = optimum_mass_properties.Mbat_Sw
+
+    current_day = time_and_location.day
+    current_h = time_and_location.h
+    current_lat = time_and_location.lat
+
+    start_h = flight_envelope_time_and_location.start_h
+    end_h = flight_envelope_time_and_location.end_h
+    dh = flight_envelope_time_and_location.dh
+    start_date = flight_envelope_time_and_location.start_date
+    end_date = flight_envelope_time_and_location.end_date
+    dday = flight_envelope_time_and_location.dday
+    N_lat = flight_envelope_time_and_location.N_lat
+    S_lat = flight_envelope_time_and_location.S_lat
+    dlat = flight_envelope_time_and_location.dlat
 
     carrying_ability = user_params.carrying_ability
     mb = user_params.mb
@@ -379,31 +398,103 @@ def mission_planning(payload_mass, optimum_mass_properties, time_and_location, u
     mu_LS = user_params.mu_LS
     CD = user_params.CD
     CL = user_params.CL
-    g = user_params.g
+    g = user_params.g    
 
-    day = time_and_location.day
-    h = time_and_location.h[0]
-    lat = time_and_location.lat
+    days_array = np.array([
+        start_date + timedelta(days=i)
+        for i in range(0, (end_date - start_date).days + dday, dday)
+    ], dtype=object)
 
-    atm = Atmosphere(h)
-    rho = atm.density[0] # [kg/m3] -> air density at altitude h
+    start_day = days_array[0]
+    total_days = (days_array[-1] - start_day).days + 1
+    day_numbers = np.array([
+        (current_day - start_day).days + 1
+        for current_day in days_array
+    ], dtype=int)
 
-    T_night = (24 - daylight_hours(day, lat))
+    latitudes_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
+    h_array = np.arange(start_h, end_h + dh, dh, dtype=float)
 
-    # P_prop = -np.inf
-    # for day in days_array:
-    #     for lat in latitudes_array:
-    #         for h in h_array:
+    P_prop = -np.inf
+    for d in days_array:
+        for l in latitudes_array:
+            for hh in h_array:
 
-    #             T_night = (24 - daylight_hours(day, lat))
-    #             atm = Atmosphere(h)
-    #             rho = atm.density[0] # [kg/m3] -> air density at altitude h
+                T_night = (24 - daylight_hours(d, l))
+                atm = Atmosphere(hh)
+                rho = atm.density[0] # [kg/m3] -> air density at altitude h
 
-    #             P_available = min(Mbat_Sw / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+                P_available = min(Mbat_Sw_opt / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw_opt)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
                 
-    #             if P_available > P_prop:
-    #                 P_prop = P_available
-    # mpayload_SW = carrying_ability * M_Sw_opt -  k_prop * P_available
+                if P_available > P_prop:
+                    P_prop = P_available
+    
+    mprop_Sw = k_prop * P_prop
+    mpayload_Sw = (carrying_ability * M_Sw_opt -  k_prop * P_available)
+    
+    if payload_mass:
+        Sw = payload_mass / mpayload_Sw
+
+    if Sw:
+        payload_mass = Sw * mpayload_Sw
+
+
+    mstruct_Sw = M_Sw_opt - Mbat_Sw_opt - mpayload_Sw
+    labels = ['Structural Mass', 'Battery Mass', 'Payload Mass', 'Propolsion Mass']
+    sizes = [mstruct_Sw, Mbat_Sw_opt, mpayload_Sw, mprop_Sw]
+    colors = ['blue', 'orange', 'green', 'red']
+    # colors = ["#1F3A73", '#ff7f0e', '#2ca02c', '#d62728']
+    
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(8, 6))
+    wedges, texts, autotexts = ax.pie(
+        sizes,
+        colors=colors,
+        autopct='%1.1f%%',
+        startangle=90,
+        counterclock=False,
+        wedgeprops={'edgecolor': 'black'}
+    )
+
+    legend_handles = [
+        Patch(facecolor=colors[i], edgecolor='black', label=labels[i])
+        for i in range(len(labels))
+    ]
+    ax.legend(
+        handles=legend_handles,
+        loc='upper left',
+        bbox_to_anchor=(0.8, 1.0),
+        borderaxespad=0.0
+    )
+
+    ax.set_title(f'Mass breakdown\nTotal Mass = {M_Sw_opt*Sw:.2f} kg')
+    ax.axis('equal')  # keeps the pie circular
+    fig.subplots_adjust(right=0.75)
+    plt.show(block=False)
+
+    filename = f'fig_mass_pie_chart.png'
+    plt.savefig(filename, dpi=200)
+
+    print(f'Contour image saved to {filename}')
+  
+    T_night = (24 - daylight_hours(current_day, current_lat))
+    atm = Atmosphere(current_h)
+    rho = atm.density[0] 
+
+    P_mean = daily_irradiance(current_h, current_lat, current_day, solar_cell_efficiency)
+    P_available = min(Mbat_Sw_opt / T_night * mu_LS * mb, CD/CL**(3/2) * (M_Sw_opt)**(3/2) * np.sqrt(2*g**3 / rho) / mu_m / mu_e)
+    
+    V = np.sqrt(2*M_Sw_opt/CL/rho)
+    
+    print(f"Payload Mass: {payload_mass} [kg]")
+    print(f"Surface Area: {Sw} [m^2]")
+    print(f"P_solar: {P_mean * Sw} [W]")
+    print(f"P_prop_installed: {P_prop * Sw} [W]")
+    print(f"P_available: {P_available * Sw} [W]")
+    print(f"Flight Speed: {V} [m/s]")
+    print(f"Altitude: {current_h} [m]")
+
+
 
 
     return

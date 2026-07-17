@@ -87,7 +87,7 @@ plt.ylabel("Available Power (W/m^2)")
 plt.title("Battery Mass vs. Wing Loading")
 plt.grid(True)
 plt.legend()
-plt.show()
+plt.show(block=False)
 
 
 
