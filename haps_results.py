@@ -10,26 +10,25 @@ from dataclasses import dataclass, field
     
 @dataclass(slots=True)
 class MassProperties:
-    M_Sw = 3.1
-    Mbat_Sw = 2.1
+    M_Sw = 3.1 # 2.6, 3.1
+    Mbat_Sw = 2.1 # 1.8, 2.1
 
     def __getitem__(self, key):
         return getattr(self, key)
     
 @dataclass(slots=True)
 class TimeLocation:
-    day = datetime(2027, 12, 21, 0, 0)
-    h = 20000  # altitude in meters
+    day = datetime(2027, 6, 21, 0, 0)
+    h = [23000]  # altitude in meters
     lat = 33 # latitude in degrees
     
     def __getitem__(self, key):
         return getattr(self, key)
 
 
-
 @dataclass(slots=True)
 class GlobalTimeLocation:
-    h = 20000  # altitude in meters
+    h = [23000]  # altitude in meters
     start_date = datetime(2027, 1, 1, 0, 0)
     end_date = datetime(2028, 1, 1, 0, 0)
     dday = 5
@@ -40,6 +39,19 @@ class GlobalTimeLocation:
     def __getitem__(self, key):
         return getattr(self, key)
     
+
+@dataclass(slots=True)
+class AzoresTimeLocation:
+    h = [23000]  # altitude in meters
+    start_date = datetime(2027, 1, 1, 0, 0)
+    end_date = datetime(2028, 1, 1, 0, 0)
+    dday = 5
+    N_lat = 43
+    S_lat = 33
+    dlat = 2
+    
+    def __getitem__(self, key):
+        return getattr(self, key)
 
 @dataclass(slots=True)
 class UserDefinedParamters:
@@ -63,6 +75,7 @@ if __name__ == '__main__':
     user_defined_parameters = UserDefinedParamters()
     time_and_location_parameters = TimeLocation()
     global_time_and_location_parameters = GlobalTimeLocation()
+    azores_time_and_location_parameters = AzoresTimeLocation()
     mass_properties = MassProperties()
 
     wing_loading_array = np.linspace(0, 5, 1000) # -> loading (kg/m^2)
@@ -70,4 +83,9 @@ if __name__ == '__main__':
 
     utils.feasibility_study(wing_loading_array, mass_properties, time_and_location_parameters, user_defined_parameters, solar_cell_efficiency=0.15)
 
+    count_max_days_in_a_year = utils.obj_fun([3.1, 2.1], azores_time_and_location_parameters, user_defined_parameters, solar_cell_efficiency=0.15)
+    print(f'Days in a Year: {count_max_days_in_a_year}')
+
+
     utils.filtering_yearly_mean_power_contour(mass_properties, global_time_and_location_parameters, user_defined_parameters, solar_cell_efficiency=0.15)
+

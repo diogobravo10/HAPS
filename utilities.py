@@ -49,9 +49,10 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
         for day_idx, current_day in enumerate(days):
             current_lat = lat
             day_number = day_numbers[day_idx]
+            current_h = h[0]
 
             daily_energy = daily_irradiance(
-                h,
+                current_h,
                 current_lat,
                 current_day,
                 solar_cell_efficiency=solar_cell_efficiency,
@@ -113,33 +114,33 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
     
     
     
-    days = np.array([
+    days_array = np.array([
         start_date + timedelta(days=i)
         for i in range(0, (end_date - start_date).days + dday, dday)
     ], dtype=object)
 
-    start_day = days[0]
-    total_days = (days[-1] - start_day).days + 1
+    start_day = days_array[0]
+    total_days = (days_array[-1] - start_day).days + 1
     day_numbers = np.array([
         (current_day - start_day).days + 1
-        for current_day in days
+        for current_day in days_array
     ], dtype=int)
 
-    latitudes = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
+    latitudes_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
 
     atm = Atmosphere(h)
     rho = atm.density[0] # [kg/m3] -> air density at altitude h
 
-    mean_power_distribution = np.zeros((len(latitudes), len(days)))
+    mean_power_distribution = np.zeros((len(latitudes_array), len(days_array)))
 
 
-    for lat_idx, lat in enumerate(latitudes):
-        for day_idx, current_day in enumerate(days):
+    for lat_idx, lat in enumerate(latitudes_array):
+        for day_idx, current_day in enumerate(days_array):
             current_lat = lat
             day_number = day_numbers[day_idx]
-
+            current_h = h[0]
             daily_energy = daily_irradiance(
-                h,
+                current_h,
                 current_lat,
                 current_day,
                 solar_cell_efficiency=solar_cell_efficiency,
@@ -160,7 +161,7 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
     levels = np.arange(0, max_mean_power + 5, 5)
     if levels.size < 2:
         levels = np.array([0.0, 1.0])
-    contour = ax.contourf(day_numbers, latitudes, mean_power_distribution, levels=levels, cmap='cividis')
+    contour = ax.contourf(day_numbers, latitudes_array, mean_power_distribution, levels=levels, cmap='cividis')
 
     ax.set_xlabel('Day of year')
     ax.set_ylabel('Latitude (deg)')
@@ -219,7 +220,7 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
     g = user_params.g
 
     day = time_and_location.day
-    h = time_and_location.h
+    h = time_and_location.h[0]
     lat = time_and_location.lat
 
     atm = Atmosphere(h)
@@ -362,53 +363,57 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
 
     return
 
-def obj_fun(x):
+def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_efficiency=0.15):
 
     score = 0
-    M_Sw, Mbat_Sw = x[0], x[1]
+    M_Sw, Mbat_Sw = design_vars[0], design_vars[1]
 
-    h_start = 20000
-    h_end = 24000
-    dh = 1000
-    h_array = np.arange(h_start, h_end + dh, dh, dtype=float)
+    h_array = global_time_and_location.h
+    start_date = global_time_and_location.start_date
+    end_date = global_time_and_location.end_date
+    dday = global_time_and_location.dday
+    N_lat = global_time_and_location.N_lat
+    S_lat = global_time_and_location.S_lat
+    dlat = global_time_and_location.dlat
 
-
-    date_start = datetime(2027, 1, 1, 0, 0)
-    date_end = datetime(2028, 1, 1, 0, 0)
-    dday = 10
-    day_array = np.array([
-        date_start + timedelta(days=i)
-        for i in range(0, (date_end - date_start).days + dday, dday)
+    carrying_ability = user_params.carrying_ability
+    mb = user_params.mb
+    k_prop = user_params.k_prop
+    mu_m = user_params.mu_m
+    mu_e = user_params.mu_e
+    mu_LS = user_params.mu_LS
+    CD = user_params.CD
+    CL = user_params.CL
+    g = user_params.g
+       
+    days_array = np.array([
+        start_date + timedelta(days=i)
+        for i in range(0, (end_date - start_date).days + dday, dday)
     ], dtype=object)
 
-    N_lat = 45
-    S_lat = 30
-    dlat = 5
-    lat_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
+    start_day = days_array[0]
+    total_days = (days_array[-1] - start_day).days + 1
+    day_numbers = np.array([
+        (current_day - start_day).days + 1
+        for current_day in days_array
+    ], dtype=int)
 
-    carrying_ability = 0.2
+    latitudes_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
 
-
-    # Propolsion/Energy System
-    mb = 450 # [Wh/Kg] -> energy density LS-battery
-    mu_m = 0.6 # effficiency propulsion system 
-    mu_e = 0.9 # efficiency energy management system
-    mu_LS = 0.9 # efficiency LS-battery
-    k_prop = 0.0045 # [kg/W] -> propeller mass2power ratio (empyrical relation)
-
-    # Aerodynamic Parametrs
-    CL = 1.5
-    CD = 0.0708
-    g = 9.81
-
-    for h in h_array:
-
-        for lat in lat_array:
-
-            for day in day_array:
+    atm = Atmosphere(h_array)
+    rho = atm.density[0] # [kg/m3] -> air density at altitude h
 
 
-                P_mean = daily_irradiance(h, lat, day)
+    for day in days_array:
+        day_verified = False
+
+        for lat in latitudes_array:
+            if day_verified:
+                break
+
+            for h in h_array:
+
+                P_mean = daily_irradiance(h, lat, day, solar_cell_efficiency)
                 T_night = (24 - daylight_hours(day, lat))
                 atm = Atmosphere(h)
                 rho = atm.density[0] # [kg/m3] -> air density at altitude h
@@ -428,8 +433,12 @@ def obj_fun(x):
                             if 0.8 * M_Sw - Mbat_Sw > 0.2: # There is enough mass for the structure
 
                                 score = score + 1
-
                                 print(score)
+                                day_verified = True
+                                break
+
+
+
 
 
 
