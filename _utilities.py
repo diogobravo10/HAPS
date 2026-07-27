@@ -1,12 +1,13 @@
-from __future__ import annotations
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from solarpy import daylight_hours, irradiance_on_plane
 from datetime import datetime, timedelta
 from ambiance import Atmosphere
-from datetime import datetime, timedelta
+
+# import scienceplots
+
+# plt.style.use("science")
 
 vnorm = np.array([0, 0, -1])  # plane pointing zenith
 
@@ -24,10 +25,10 @@ def daily_irradiance(h, lat, start_date, solar_cell_efficiency=0.15, vnorm = np.
     t = np.array([(d - start_date).total_seconds() for d in dates], dtype=float)
     G = np.array([irradiance_on_plane(vnorm, h, d, lat) for d in dates], dtype=float)
 
-    # J/m²
+    # J/m^2
     energy_j_per_m2 = np.trapezoid(G, t)
 
-    # Wh/m²
+    # Wh/m^2
     energy_wh_per_m2 = energy_j_per_m2 / 3600.0  
     
     power_density_available = energy_wh_per_m2 / 24.0 * solar_cell_efficiency
@@ -61,7 +62,7 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
 
             mean_power_distribution[lat_idx, day_idx] = daily_energy
 
-            print(f'Processed latitude {current_lat:.2f} deg, day {day_number}/{total_days}: mean power = {mean_power_distribution[lat_idx, day_idx]:.2f} W/m²')
+            print(f'Processed latitude {current_lat:.2f} deg, day {day_number}/{total_days}: mean power = {mean_power_distribution[lat_idx, day_idx]:.2f} W/m^2')
 
     fig, ax = plt.subplots(figsize=(14, 7))
     max_mean_power = float(np.max(mean_power_distribution))
@@ -81,7 +82,7 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
     ax.scatter(355, 43, marker='x', color='red', s=150, linewidths=2)
     ax.legend(loc='upper right')
 
-    fig.colorbar(contour, ax=ax, ticks=levels, label='Mean power (W/m²)')
+    fig.colorbar(contour, ax=ax, ticks=levels, label=r'Mean power ($W/m^2$)')
     plt.tight_layout()
     plt.savefig('mean_power_distribution.png', dpi=200)
     plt.close(fig)
@@ -155,7 +156,7 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
 
             mean_power_distribution[lat_idx, day_idx] = daily_energy if daily_energy > P_available else 0
 
-            print(f'Processed latitude {current_lat:.2f} deg, day {day_number}/{total_days}: mean power = {mean_power_distribution[lat_idx, day_idx]:.2f} W/m²')
+            print(f'Processed latitude {current_lat:.2f} deg, day {day_number}/{total_days}: mean power = {mean_power_distribution[lat_idx, day_idx]:.2f} W/m^2')
 
 
     fig, ax = plt.subplots(figsize=(14, 7))
@@ -196,10 +197,11 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
 
     # ax.scatter(355, 43, marker='x', color='red', s=150, linewidths=2)
 
-    fig.colorbar(contour, ax=ax, ticks=levels, label='Mean power (W/m²)')
+    fig.colorbar(contour, ax=ax, ticks=levels, label=r'Mean power ($W/m^2$)')
     plt.tight_layout()
     filename = f'fig_mean_power_distribution_{h_array[0]}.png'
     plt.savefig(filename, dpi=200)
+    plt.pause(0.1)
     plt.show(block=False)
 
 
@@ -334,16 +336,16 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
     ax.set_xlim(0, 5)
     ax.set_ylim(0, 100)
 
-    ax.set_xlabel("Wing Loading (kg/m^2)")
+    ax.set_xlabel(r"Wing Loading ($kg/m^2$)")
     ax.set_title("Trade-Off Study: Mass vs Solar Irradiance")
 
-    ax.set_ylabel("Solar Irradiance (W/m²)", color='red')
+    ax.set_ylabel(r"Solar Irradiance ($W/m^2$)", color='red')
     ax.tick_params(axis='y', colors='red')
     ax.spines['left'].set_color('red')
 
     ax2 = ax.twinx()
     ax2.set_ylim(ax.get_ylim()[0] * mu_m * mu_e, ax.get_ylim()[1] * mu_m * mu_e)
-    ax2.set_ylabel("Available Power (W/m^2)", color='blue')
+    ax2.set_ylabel(r"Available Power ($W/m^2$)", color='blue')
     ax2.tick_params(axis='y', colors='blue')
     ax2.spines['right'].set_color('blue')
 
@@ -362,6 +364,12 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
         dp_battery_mass,
         dp_non_structural_mass
     ])
+
+    # legend = ax.legend(frameon=True)
+    # legend.get_frame().set_edgecolor('black')
+
+
+    plt.pause(0.1)
     plt.show(block=False)
 
     filename = f'fig_feasibility_plot.png'
@@ -440,9 +448,9 @@ def mission_planning(optimum_mass_properties, time_and_location, flight_envelope
 
 
     mstruct_Sw = M_Sw_opt - Mbat_Sw_opt - mpayload_Sw
-    labels = ['Structural Mass', 'Battery Mass', 'Payload Mass', 'Propolsion Mass']
+    labels = ['Structure', 'Battery', 'Payload', 'Propolsion']
     sizes = [mstruct_Sw, Mbat_Sw_opt, mpayload_Sw, mprop_Sw]
-    colors = ['blue', 'orange', 'green', 'red']
+    colors = ['blue', 'magenta', 'brown', 'green']
     # colors = ["#1F3A73", '#ff7f0e', '#2ca02c', '#d62728']
     
     plt.ion()
@@ -462,17 +470,21 @@ def mission_planning(optimum_mass_properties, time_and_location, flight_envelope
     ]
     ax.legend(
         handles=legend_handles,
-        loc='upper left',
-        bbox_to_anchor=(0.8, 1.0),
+        loc='lower center',
+        frameon=True,
+        bbox_to_anchor=(0.5, -0.1),
+        ncol=4,
         borderaxespad=0.0
     )
 
     ax.set_title(f'Mass breakdown\nTotal Mass = {M_Sw_opt*Sw:.2f} kg')
     ax.axis('equal')  # keeps the pie circular
     fig.subplots_adjust(right=0.75)
+
+    plt.pause(0.1)
     plt.show(block=False)
 
-    filename = f'fig_mass_pie_chart.png'
+    filename = 'fig_mass_pie_chart.png'
     plt.savefig(filename, dpi=200)
 
     print(f'Contour image saved to {filename}')
@@ -579,7 +591,7 @@ def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_effic
 
                         if k_prop * P_prop < carrying_ability * M_Sw: # There is enough mass for payload and the payload is heavier than the propolsion system
 
-                            if 0.8 * M_Sw - Mbat_Sw > 0.4: # There is enough mass for the structure
+                            if 0.8 * M_Sw - Mbat_Sw > 0.2: # There is enough mass for the structure
 
                                 score = score + 1
                                 print(f'score = {score}', end=', ', flush=True)

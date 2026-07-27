@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 design_vars_0 = [3.0, 2.0]
 bounds = [[0.1, 5.0], [0.1, 5.0]]
-ranges = (slice(1.0, 4.0, 0.5), slice(1.0, 4.0, 0.5))  # Define the ranges for M_Sw and Mbat_Sw
+ranges = (slice(1.0, 4.5, 0.05), slice(1.0, 4.5, 0.05))  # Define the ranges for M_Sw and Mbat_Sw
 
 user_defined_parameters = user.get_user_defined_parameters()
 azores_flight_envelope = user.get_azores_flight_envelope(dday = 5)
