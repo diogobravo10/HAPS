@@ -29,7 +29,7 @@ with open(log_diff, 'w') as file:
     file.write(f"Optimal M_Sw: {result_dif.x[0]:.2f} kg, Optimal Mbat_Sw: {result_dif.x[1]:.2f} kg: Points Validated: {-utils.obj_fun([result_dif.x[0], result_dif.x[1]], azores_flight_envelope, user_defined_parameters, solar_cell_efficiency=0.15)}")
 
 
-result_shgo = differential_evolution(utils.obj_fun, bounds, args= (azores_flight_envelope, user_defined_parameters, solar_cell_efficiency), polish=False) # I need more constraints
+result_shgo = shgo(utils.obj_fun, bounds, args= (azores_flight_envelope, user_defined_parameters, solar_cell_efficiency), polish=False) # I need more constraints
 log_shgo = "log_shgo.csv"
 with open(log_shgo, 'w') as file:
     file.write(f"Optimal M_Sw: {result_shgo.x[0]:.2f} kg, Optimal Mbat_Sw: {result_shgo.x[1]:.2f} kg: Points Validated: {-utils.obj_fun([result_shgo.x[0], result_shgo.x[1]], azores_flight_envelope, user_defined_parameters, solar_cell_efficiency=0.15)}")
@@ -47,7 +47,5 @@ result_minimize = minimize(fun = utils.obj_fun,
 log_minimize = "log_minimize.csv"
 with open(log_minimize, 'w') as file:
     file.write(f"Optimal M_Sw: {result_minimize.x[0]:.2f} kg, Optimal Mbat_Sw: {result_minimize.x[1]:.2f} kg: Points Validated: {-utils.obj_fun([result_minimize.x[0], result_minimize.x[1]], azores_flight_envelope, user_defined_parameters, solar_cell_efficiency=0.15)}")
-
-
 
 
