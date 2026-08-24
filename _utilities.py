@@ -13,6 +13,19 @@ vnorm = np.array([0, 0, -1])  # plane pointing zenith
 
 
 def daily_irradiance(h, lat, start_date, solar_cell_efficiency=0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
+    """Estimate mean available power density from solar irradiance over one day.
+
+    Parameters
+    - h: altitude in meters
+    - lat: latitude in degrees
+    - start_date: day under analysis
+    - solar_cell_efficiency: fraction of incident irradiance converted to electrical power
+    - vnorm: surface normal vector for the solar panel
+    - step: time resolution for numerical integration
+
+    Returns
+    - power_density_available: mean available power density (W/m^2) averaged over 24h
+    """
     dates = []
     current = start_date
  
@@ -37,6 +50,12 @@ def daily_irradiance(h, lat, start_date, solar_cell_efficiency=0.15, vnorm = np.
 
 
 def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
+    """Compute and plot a latitude vs day contour of mean daily power.
+
+    Iterates over provided `latitudes` and `days`, computes the daily
+    irradiance using `daily_irradiance`, and writes a contour PNG
+    `mean_power_distribution.png` showing mean power (W/m^2).
+    """
 
     mean_power_distribution = np.zeros((len(latitudes), len(days)))
     start_day = days[0]
@@ -90,6 +109,13 @@ def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, 
     print('Contour image saved to mean_power_distribution.png')
 
 def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and_location, user_params, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
+    """Like `yearly_mean_power_contour` but filter cells where available
+    power (from batteries or propulsion limit) is insufficient.
+
+    Parameters are pulled from `optimum_mass_properties`,
+    `global_time_and_location` and `user_params`. Produces and shows
+    a contour plot (PNG file) of feasible mean power values.
+    """
 
     M_Sw_opt = optimum_mass_properties.M_Sw
     Mbat_Sw_opt = optimum_mass_properties.Mbat_Sw
@@ -209,7 +235,13 @@ def filtering_yearly_mean_power_contour(optimum_mass_properties, global_time_and
 
 
 def feasibility_study(x_values, optimum_mass_properties, time_and_location, user_params, solar_cell_efficiency=0.15):
+    """Create a feasibility trade-off plot for wing loading vs irradiance.
 
+    Plots constraints (wing loading, battery mass, propulsion mass,
+    payload) and highlights feasible/unfeasible regions given the
+    `optimum_mass_properties` and `user_params` at the provided
+    `time_and_location`.
+    """
 
     M_Sw_opt = optimum_mass_properties.M_Sw
     Mbat_Sw_opt = optimum_mass_properties.Mbat_Sw
@@ -381,6 +413,22 @@ def feasibility_study(x_values, optimum_mass_properties, time_and_location, user
 
 def mission_planning(optimum_mass_properties, time_and_location, flight_envelope_time_and_location, user_params, payload_mass = None, Sw = None, solar_cell_efficiency=0.15):
 
+    #############################################################################
+    #                                                                           #
+    #                                                                           #
+    #   Initialization                                                          #
+    #                                                                           #
+    #                                                                           #
+    #############################################################################
+
+    """Produce mass breakdown and basic mission metrics for a design.
+
+    Generates a pie chart of structure, battery, payload and propulsion
+    mass using the provided `optimum_mass_properties` and flight
+    envelope. Prints several mission summary metrics (power, speed,
+    altitude, surface area estimates).
+    """
+
     M_Sw_opt = optimum_mass_properties.M_Sw
     Mbat_Sw_opt = optimum_mass_properties.Mbat_Sw
 
@@ -513,6 +561,14 @@ def mission_planning(optimum_mass_properties, time_and_location, flight_envelope
 
 
 def obj_fun(design_vars, global_time_and_location, user_params, solar_cell_efficiency=0.15):
+    """Objective function used by optimizers to find feasible designs.
+
+    Evaluates a candidate design (`design_vars` = [M_Sw, Mbat_Sw]) over a
+    grid of days, latitudes and altitudes from `global_time_and_location`.
+    Returns a negative count of days that meet all feasibility checks
+    (higher is better for the optimizer). Returns a large penalty if
+    the design is invalid (e.g., total mass less than battery mass).
+    """
 
     score = 0
     M_Sw, Mbat_Sw = design_vars[0], design_vars[1]

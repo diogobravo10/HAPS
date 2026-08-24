@@ -1,4 +1,4 @@
-import utilities as utils
+import _utilities as utils
 import numpy as np
 from solarpy import irradiance_on_plane, daylight_hours
 from ambiance import Atmosphere
