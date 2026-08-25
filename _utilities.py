@@ -9,7 +9,7 @@ from ambiance import Atmosphere
 
 # plt.style.use("science")
 
-vnorm = np.array([0, 0, -1])  # plane pointing zenith
+vnorm = np.array([0, 0, -1])  # plane pointing zenith -> consider bank angle/ dihedral angle for more realistic solar panel orientation
 
 
 def daily_irradiance(h, lat, start_date, solar_cell_efficiency=0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
