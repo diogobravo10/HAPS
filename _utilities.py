@@ -45,8 +45,40 @@ def daily_irradiance(h, lat, start_date, solar_cell_efficiency=0.15, vnorm = np.
     energy_wh_per_m2 = energy_j_per_m2 / 3600.0  
     
     power_density_available = energy_wh_per_m2 / 24.0 * solar_cell_efficiency
-    
+
     return power_density_available
+
+
+def instantaneous_power_density(h, lat, start_date, t, solar_cell_efficiency=0.15, vnorm=np.array([0, 0, -1])):
+    """Estimate instantaneous available power density from solar irradiance.
+
+    Unlike `daily_irradiance`, which averages over a full day, this evaluates
+    the irradiance at each given elapsed time - for mission phases shorter
+    than 24h where altitude and sun position both change within the phase.
+
+    Parameters
+    - h: altitude(s) in meters (scalar or array-like, broadcastable with t)
+    - lat: latitude in degrees
+    - start_date: datetime marking t=0 (must include time-of-day)
+    - t: elapsed time(s) in seconds since start_date (scalar or array-like)
+    - solar_cell_efficiency: fraction of incident irradiance converted to electrical power
+    - vnorm: surface normal vector for the solar panel
+
+    Returns
+    - power_density: instantaneous available power density (W/m^2), broadcast(t, h) shape
+    """
+    t_arr, h_arr = np.broadcast_arrays(np.atleast_1d(t).astype(float), np.atleast_1d(h).astype(float))
+    power_density = np.empty(t_arr.shape, dtype=float)
+
+    for idx in np.ndindex(t_arr.shape):
+        current_date = start_date + timedelta(seconds=float(t_arr[idx]))
+        h_i = float(np.clip(h_arr[idx], 0.0, 24000.0))
+        G = irradiance_on_plane(vnorm, h_i, current_date, lat)
+        power_density[idx] = G * solar_cell_efficiency
+
+    if np.isscalar(t) and np.isscalar(h):
+        return power_density.item()
+    return power_density
 
 
 def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
