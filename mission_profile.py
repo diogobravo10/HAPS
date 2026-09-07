@@ -1,8 +1,11 @@
+import os
 import numpy as np
 import openmdao.api as om
 import dymos as dm
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 - registers the '3d' projection
 from ambiance import Atmosphere
+from scipy.integrate import cumulative_trapezoid
 from datetime import datetime
 import _utilities as utils
 import time
@@ -19,11 +22,12 @@ lat = 37.5
 M_Sw = 3.0  # [kg/m^2] wing loading
 g = 9.81
 CD, CLmax = 0.0708, 1.5
-eta_prop, solar_cell_efficiency = 0.7, 0.15
+eta_prop, solar_cell_efficiency = 0.7, 0.5
 mb = 450     # [Wh/kg] energy density of the LS-battery
 mu_LS = 0.9  # [-] round-trip efficiency of the LS-battery
 
 SOLUTION_DB = 'mission_profile_out/dymos_solution.db'
+PLOTS_DIR = 'nice_plots_3d_trajectory'
 
 
 class SolarAircraftODE(om.ExplicitComponent):
@@ -45,10 +49,17 @@ class SolarAircraftODE(om.ExplicitComponent):
         # Inputs: Controls
         self.add_input('V', val=np.ones(nn) * 15.0, units='m/s', desc='Airspeed (control)')
         self.add_input('Vdot', val=np.zeros(nn), units='m/s**2', desc='Airspeed rate (control rate)')
+        self.add_input('bank', val=np.zeros(nn), units='rad', desc='Bank angle (control)')
         # Auto-connected by Dymos: absolute phase time and current altitude/energy states
         self.add_input('time', val=np.zeros(nn), units='s')
         self.add_input('h', val=np.ones(nn) * 12000.0, units='m')
         self.add_input('E', val=np.zeros(nn), units='J/m**2', desc='Accumulated net energy per unit wing area (state)')
+        # Heading angle - a state, not a control: 'psi' evolves off the coordinated-turn
+        # rate implied by 'bank' and 'V' (see compute()), and feeds back into P_in via the
+        # panel-tilt vnorm below, so it has to be solved for here rather than deferred to
+        # post-processing. Ground-track position (x, y) has no such feedback into the
+        # physics - it's inferred from psi/V after the fact instead (see plot_results()).
+        self.add_input('psi', val=np.zeros(nn), units='rad', desc='Heading angle (state)')
         if dhdt_is_control:
             self.add_input('dhdt', val=np.zeros(nn), units='m/s', desc='Rate of climb/descent (control)')
 
@@ -65,6 +76,8 @@ class SolarAircraftODE(om.ExplicitComponent):
                          desc='Battery mass per unit wing area needed to store the accumulated energy E')
         self.add_output('P_in', val=np.zeros(nn), units='W/m**2',
                          desc='Incident solar power density (diagnostic only)')
+        self.add_output('psi_dot', val=np.zeros(nn), units='rad/s',
+                         desc='Heading rate from the coordinated-turn bank angle (state rate source)')
 
         # Every output here depends only on its own node's inputs - there's no cross-node
         # coupling anywhere in this ODE - so the true Jacobian is diagonal, not dense.
@@ -93,6 +106,8 @@ class SolarAircraftODE(om.ExplicitComponent):
         E = inputs['E']
         V = inputs['V']
         Vdot = inputs['Vdot']
+        bank = inputs['bank']
+        psi = inputs['psi']
 
         rho = Atmosphere(h).density
 
@@ -108,10 +123,43 @@ class SolarAircraftODE(om.ExplicitComponent):
         dhdt_fixed = self.options['dhdt_fixed']
         dhdt = inputs['dhdt'] if dhdt_fixed is None else np.full_like(V, dhdt_fixed)
         outputs['hdot'] = dhdt
-        outputs['gg'] = np.arcsin(np.clip(dhdt / V, -1.0, 1.0))
+        gg = np.arcsin(np.clip(dhdt / V, -1.0, 1.0))
+        outputs['gg'] = gg
+
+        # Coordinated turn: bank angle sets the turn radius r = V_h^2/(g*tan(bank)) (0 bank
+        # => straight flight, psi_dot = 0), and psi is then an integrated state off of that
+        # turn rate, same relation as phi_dot = V/r in the paper's cylindrical-trajectory
+        # model. Uses V_h = V*cos(gg), the HORIZONTAL component of the (total, along-path)
+        # airspeed V - the standard turn-rate relation is derived from purely horizontal
+        # circular motion (L*sin(bank) = m*V_h^2/r), so it wants the horizontal speed, not
+        # the total one V itself is. They coincide when gg=0 (cruise); during climb/descent
+        # V has a vertical component too and would otherwise overstate V_h. Ground-track
+        # x/y are NOT states here - they don't feed back into P_in or the objective, so
+        # they're cheaper to infer post-hoc from psi/V (see plot_results()) than to carry
+        # as extra collocated states/defects in every phase.
+        sin_gg, cos_gg = np.sin(gg), np.cos(gg)
+        V_h = V * cos_gg
+        psi_dot = g * np.tan(bank) / V_h
+        outputs['psi_dot'] = psi_dot
+        sin_psi, cos_psi = np.sin(psi), np.cos(psi)
+
+        # Solar panel normal vector, per node - a standard yaw(psi)-pitch(gg)-roll(bank)
+        # rotation of the level, zenith-pointing panel normal (0,0,-1) into the (x, y,
+        # z-down) frame used elsewhere in this file/_utilities.py: the pitch term (using
+        # the flight-path angle gg for theta = gamma+alpha, per eq. 24-25 of Rajendran
+        # et al. 2016, with alpha~0 since this model has no separate angle-of-attack
+        # state) tilts the panel fore/aft during climb/descent, and the bank term tilts
+        # it sideways into the turn, same as a real wing/lift vector. Wings-level,
+        # unbanked flight (gg=0, bank=0) recovers the original flat (0,0,-1) default.
+        sin_bank, cos_bank = np.sin(bank), np.cos(bank)
+        vnorm = np.stack([
+            -cos_psi * sin_gg * cos_bank - sin_psi * sin_bank,
+            -sin_psi * sin_gg * cos_bank + cos_psi * sin_bank,
+            -cos_gg * cos_bank,
+        ], axis=-1)
 
         # Solar Power Input - already a power density (W/m^2), so no wing area to multiply by
-        P_in = utils.instantaneous_power_density(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency)
+        P_in = utils.instantaneous_power_density(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
         outputs['P_in'] = P_in
 
         # Aerodynamic Drag & Required Thrust Power, per unit wing area.
@@ -143,6 +191,7 @@ class SolarAircraftODE(om.ExplicitComponent):
 #
 #
 #       INCREASING ALTITUDES HELP WITH BATTERY PERFORMANCE -> PARAMETRIC STUDY
+#       Pressure model only works up to 24 km on solar irradiance model
 #
 #
 #
@@ -150,9 +199,9 @@ class SolarAircraftODE(om.ExplicitComponent):
 #################################################################################################
 
 MISSION_DURATION = 24*3600.0  # total climb+cruise+descent mission length, fixed [s]
-START_ALTITUDE = 15000.0      # [m]
-CHECKPOINT_ALTITUDE = 24000.0  # [m] must be reached at some (free) time during the mission
-FINAL_ALTITUDE = 15000.0      # [m] same as start altitude
+START_ALTITUDE = 18000.0      # [m]
+CHECKPOINT_ALTITUDE = 22000.0  # [m] must be reached at some (free) time during the mission
+FINAL_ALTITUDE = 18000.0      # [m] same as start altitude
 
 
 MBAT_SW_INITIAL = 2.0  # [kg/m^2] battery mass already charged at the start of the mission
@@ -167,7 +216,7 @@ DESCENT_DURATION_GUESS = (CHECKPOINT_ALTITUDE - FINAL_ALTITUDE) / -DESCENT_RATE_
 CRUISE_DURATION_GUESS = MISSION_DURATION - CLIMB_DURATION_GUESS - DESCENT_DURATION_GUESS
 
 
-def _make_phase(dhdt_fixed=None, fix_initial=False, num_segments=6):
+def _make_phase(dhdt_fixed=None, fix_initial=False, num_segments=4):
     """Build a Phase using the shared ODE, airspeed control, and stall-margin constraint.
 
     `dhdt_fixed`: pass a float (climb/sink rate in m/s, 0.0 for level) to keep dhdt fixed
@@ -192,10 +241,17 @@ def _make_phase(dhdt_fixed=None, fix_initial=False, num_segments=6):
     phase.add_state('h', rate_source='hdot', fix_initial=fix_initial, units='m',
                      lower=0.0, upper=30000.0)
     phase.add_state('E', rate_source='E_dot', fix_initial=fix_initial, units='J/m**2')  # Net energy-per-area integral - auxiliary state variable
+    # Heading angle, integrated off the bank-angle control below (see
+    # SolarAircraftODE.compute()). Unconstrained - only 'h' has real physical bounds; psi
+    # just accumulates whatever the coordinated turn implies. (Ground-track x/y are NOT
+    # states - they're inferred post-hoc from psi/V in plot_results() instead, since they
+    # don't feed back into the physics and would only add extra collocation defects here.)
+    phase.add_state('psi', rate_source='psi_dot', fix_initial=fix_initial, units='rad')
 
     # V is always a free control, subject to the stall-margin constraint below. When
     # dhdt_fixed is None, dhdt (climb/sink rate) becomes a second free control too.
     phase.add_control('V', lower=5.0, upper=30.0, units='m/s', rate_targets=['Vdot'])
+    phase.add_control('bank', lower=np.radians(-10), upper=np.radians(10), units='rad')
     if dhdt_fixed is None:
         phase.add_control('dhdt', lower=-3.0, upper=3.0, units='m/s')
 
@@ -238,7 +294,7 @@ def build_problem():
     traj.add_phase('climb', climb)
     traj.add_phase('cruise', cruise)
     traj.add_phase('descent', descent)
-    traj.link_phases(['climb', 'cruise', 'descent'], vars=['time', 'h', 'E'])
+    traj.link_phases(['climb', 'cruise', 'descent'], vars=['time', 'h', 'E', 'psi'])
     prob.model.add_subsystem('traj', traj)
 
     prob.driver = om.ScipyOptimizeDriver()  # Or pyOptSparseDriver(optimizer='IPOPT')
@@ -283,12 +339,18 @@ def build_problem():
     prob.set_val('traj.climb.controls:V', 15.0)
     # Matches the average rate implied by CLIMB_DURATION_GUESS, for a consistent starting point
     prob.set_val('traj.climb.controls:dhdt', (CHECKPOINT_ALTITUDE - START_ALTITUDE) / CLIMB_DURATION_GUESS)
+    # Heading guess: bank=0 (straight, no turn), so psi stays at 0. The optimizer is free
+    # to turn away from this.
+    prob.set_val('traj.climb.states:psi', climb.interp('psi', [0.0, 0.0]))
+    prob.set_val('traj.climb.controls:bank', 0.0)
 
     prob.set_val('traj.cruise.t_initial', CLIMB_DURATION_GUESS)
     prob.set_val('traj.cruise.t_duration', CRUISE_DURATION_GUESS)
     prob.set_val('traj.cruise.states:h', cruise.interp('h', [CHECKPOINT_ALTITUDE, CHECKPOINT_ALTITUDE]))
     prob.set_val('traj.cruise.states:E', cruise.interp('E', [0, 0]))
     prob.set_val('traj.cruise.controls:V', 15.0)
+    prob.set_val('traj.cruise.states:psi', cruise.interp('psi', [0.0, 0.0]))
+    prob.set_val('traj.cruise.controls:bank', 0.0)
 
     prob.set_val('traj.descent.t_initial', CLIMB_DURATION_GUESS + CRUISE_DURATION_GUESS)
     prob.set_val('traj.descent.t_duration', DESCENT_DURATION_GUESS)
@@ -296,6 +358,8 @@ def build_problem():
     prob.set_val('traj.descent.states:E', descent.interp('E', [0, 0]))
     prob.set_val('traj.descent.controls:V', 15.0)
     prob.set_val('traj.descent.controls:dhdt', DESCENT_RATE_GUESS)
+    prob.set_val('traj.descent.states:psi', descent.interp('psi', [0.0, 0.0]))
+    prob.set_val('traj.descent.controls:bank', 0.0)
 
     return prob
 
@@ -310,6 +374,8 @@ def _stacked_timeseries(source, var):
 
 def plot_results(source):
     """Plot mission results from anything exposing .get_val() - a Problem (fresh run) or a Case (CaseReader)."""
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+
     t = _stacked_timeseries(source, 'time')
     Mbat_Sw = _stacked_timeseries(source, 'Mbat_Sw')
     h = _stacked_timeseries(source, 'h')
@@ -317,6 +383,17 @@ def plot_results(source):
     V_flown = _stacked_timeseries(source, 'V')
     P_in = _stacked_timeseries(source, 'P_in')
     E_dot = _stacked_timeseries(source, 'E_dot')
+    bank = _stacked_timeseries(source, 'bank')
+    psi = _stacked_timeseries(source, 'psi')
+
+    # Ground-track position isn't a state in the optimization (see SolarAircraftODE) -
+    # it's inferred here after the fact by integrating the already-solved psi(t)/V(t).
+    # Horizontal displacement is driven by the horizontal speed component V_h = V*cos(gg)
+    # (V itself is the total, along-path airspeed - see the V_h note in compute()), not
+    # the raw airspeed - they coincide during cruise (gg=0) but not climb/descent.
+    V_h = V_flown * np.cos(gg)
+    x = cumulative_trapezoid(V_h * np.cos(psi), t, initial=0.0)
+    y = cumulative_trapezoid(V_h * np.sin(psi), t, initial=0.0)
 
     # x-ticks at 6h, 12h, 18h, 24h - set on the bottom subplot of each figure and
     # shared to the rest via sharex=True
@@ -367,6 +444,7 @@ def plot_results(source):
     ax_stall.legend()
 
     plt.tight_layout()
+    fig.savefig(os.path.join(PLOTS_DIR, 'trajectory_altitude_speed.png'), dpi=200)
 
     # Figure 2: Energy concepts - irradiance/net power and battery mass vs elapsed time
     fig2, axes2 = plt.subplots(2, 1, sharex=True, figsize=(9, 6))
@@ -385,11 +463,72 @@ def plot_results(source):
     axes2[1].set_xticks(hour_marks_s, hour_labels)
 
     plt.tight_layout()
+    fig2.savefig(os.path.join(PLOTS_DIR, 'energy_concepts.png'), dpi=200)
+
+    # Figure 3: Ground track (x, y) and bank angle vs elapsed time - the coordinated-turn
+    # position resulting from the bank-angle control (0 bank => straight line)
+    fig3, (ax_track, ax_bank) = plt.subplots(1, 2, figsize=(12, 5))
+    fig3.suptitle('Ground track')
+
+    ax_track.plot(x, y, 'b-', linewidth=2)
+    ax_track.scatter([x[0]], [y[0]], color='green', zorder=3, label='Start')
+    ax_track.scatter([x[-1]], [y[-1]], color='red', zorder=3, label='End')
+    ax_track.set_xlabel('x [m]')
+    ax_track.set_ylabel('y [m]')
+    ax_track.set_title('x-y ground track')
+    ax_track.axis('equal')
+    ax_track.grid(True)
+    ax_track.legend()
+
+    ax_bank.plot(t, np.degrees(bank), 'purple', linewidth=2)
+    ax_bank.set_xlabel('Elapsed time [s]')
+    ax_bank.set_ylabel('Bank angle [deg]')
+    ax_bank.set_title('Bank angle vs time')
+    ax_bank.grid(True)
+    ax_bank.set_xticks(hour_marks_s, hour_labels)
+
+    plt.tight_layout()
+    fig3.savefig(os.path.join(PLOTS_DIR, 'ground_track.png'), dpi=200)
+
+    # Figure 4: 3D trajectory (x, y, altitude), colored by mission phase - same idea as
+    # Figure 10 of Rajendran et al. 2016, but following the actual optimized ground track
+    # instead of an assumed perfect circle.
+    fig4 = plt.figure(figsize=(9, 7))
+    ax_3d = fig4.add_subplot(projection='3d')
+    fig4.suptitle('3D trajectory')
+
+    # x/y aren't per-phase timeseries outputs (see above) - slice the globally-integrated
+    # arrays by each phase's own node count instead, in the same climb/cruise/descent
+    # order _stacked_timeseries() concatenated them in.
+    phase_colors = {'climb': 'tab:red', 'cruise': 'tab:green', 'descent': 'tab:blue'}
+    start_idx = 0
+    for phase_name, color in phase_colors.items():
+        n_nodes = source.get_val(f'traj.{phase_name}.timeseries.time').size
+        end_idx = start_idx + n_nodes
+        ax_3d.plot(x[start_idx:end_idx], y[start_idx:end_idx], h[start_idx:end_idx],
+                   color=color, linewidth=2, label=phase_name.capitalize())
+        start_idx = end_idx
+
+    ax_3d.scatter([x[0]], [y[0]], [h[0]], color='black', marker='o', s=40, label='Start')
+    ax_3d.scatter([x[-1]], [y[-1]], [h[-1]], color='black', marker='^', s=40, label='End')
+    ax_3d.set_xlabel('x [m]')
+    ax_3d.set_ylabel('y [m]')
+    ax_3d.set_zlim([0, 24000])
+    ax_3d.set_zlabel('Altitude h [m]')
+    ax_3d.legend()
+
+    plt.tight_layout()
+    fig4.savefig(os.path.join(PLOTS_DIR, 'trajectory_3d.png'), dpi=200)
+
+    print(f"Final ground-track position: x = {x[-1]:.1f} m, y = {y[-1]:.1f} m")
+    print(f"Plots saved to '{PLOTS_DIR}/'")
 
     plt.show()
 
+    return x, y
 
-RUN_OPTIMIZATION = True  # False -> skip the solve and re-plot the last saved solution instead
+
+RUN_OPTIMIZATION = False  # False -> skip the solve and re-plot the last saved solution instead
 
 
 if __name__ == '__main__':

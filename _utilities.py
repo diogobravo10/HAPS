@@ -62,7 +62,10 @@ def instantaneous_power_density(h, lat, start_date, t, solar_cell_efficiency=0.1
     - start_date: datetime marking t=0 (must include time-of-day)
     - t: elapsed time(s) in seconds since start_date (scalar or array-like)
     - solar_cell_efficiency: fraction of incident irradiance converted to electrical power
-    - vnorm: surface normal vector for the solar panel
+    - vnorm: surface normal vector for the solar panel. Either a single 3-vector
+      applied to every node (the default, a flat zenith-pointing panel), or a
+      per-node array of shape (*t_arr.shape, 3) - e.g. when the panel's tilt
+      varies over the trajectory with the aircraft's bank/heading angle.
 
     Returns
     - power_density: instantaneous available power density (W/m^2), broadcast(t, h) shape
@@ -70,13 +73,17 @@ def instantaneous_power_density(h, lat, start_date, t, solar_cell_efficiency=0.1
     t_arr, h_arr = np.broadcast_arrays(np.atleast_1d(t).astype(float), np.atleast_1d(h).astype(float))
     power_density = np.empty(t_arr.shape, dtype=float)
 
+    vnorm_arr = np.asarray(vnorm, dtype=float)
+    per_node_vnorm = vnorm_arr.ndim > 1
+
     for idx in np.ndindex(t_arr.shape):
         current_date = start_date + timedelta(seconds=float(t_arr[idx]))
         h_i = float(np.clip(h_arr[idx], 0.0, 24000.0))
-        G = irradiance_on_plane(vnorm, h_i, current_date, lat)
+        vnorm_i = vnorm_arr[idx] if per_node_vnorm else vnorm_arr
+        G = irradiance_on_plane(vnorm_i, h_i, current_date, lat)
         power_density[idx] = G * solar_cell_efficiency
 
-    if np.isscalar(t) and np.isscalar(h):
+    if np.isscalar(t) and np.isscalar(h) and not per_node_vnorm:
         return power_density.item()
     return power_density
 
