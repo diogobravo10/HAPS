@@ -111,7 +111,7 @@ class SolarAircraftODE(om.ExplicitComponent):
         outputs['gg'] = np.arcsin(np.clip(dhdt / V, -1.0, 1.0))
 
         # Solar Power Input - already a power density (W/m^2), so no wing area to multiply by
-        P_in = utils.instantaneous_power_density(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=0.15)
+        P_in = utils.instantaneous_power_density(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency)
         outputs['P_in'] = P_in
 
         # Aerodynamic Drag & Required Thrust Power, per unit wing area.
@@ -136,10 +136,24 @@ class SolarAircraftODE(om.ExplicitComponent):
             # t.min(), t.max(), h.min(), h.max(), V.min(), V.max(), outputs['E_dot'].min(), outputs['E_dot'].max()))
 
 
+
+#################################################################################################
+#
+#
+#
+#
+#       INCREASING ALTITUDES HELP WITH BATTERY PERFORMANCE -> PARAMETRIC STUDY
+#
+#
+#
+#
+#################################################################################################
+
 MISSION_DURATION = 24*3600.0  # total climb+cruise+descent mission length, fixed [s]
-START_ALTITUDE = 18000.0      # [m]
+START_ALTITUDE = 15000.0      # [m]
 CHECKPOINT_ALTITUDE = 24000.0  # [m] must be reached at some (free) time during the mission
-FINAL_ALTITUDE = 18000.0      # [m] same as start altitude
+FINAL_ALTITUDE = 15000.0      # [m] same as start altitude
+
 
 MBAT_SW_INITIAL = 2.0  # [kg/m^2] battery mass already charged at the start of the mission
 E_INITIAL = MBAT_SW_INITIAL * 3600.0 * mu_LS * mb  # [J/m^2] equivalent starting value of E
@@ -147,13 +161,13 @@ E_INITIAL = MBAT_SW_INITIAL * 3600.0 * mu_LS * mb  # [J/m^2] equivalent starting
 # Neither climb nor descent has a prescribed rate anymore - dhdt is a free control in both
 # (bounded via gg's +-5deg path constraint above), so their durations are genuinely unknown
 # ahead of time. Everything below is just an initial guess for the solver, not exact values.
-CLIMB_DURATION_GUESS = 6*3600.0
+CLIMB_DURATION_GUESS = 10*3600.0
 DESCENT_RATE_GUESS = -1.0  # [m/s] seeds descent's dhdt control and duration guess
 DESCENT_DURATION_GUESS = (CHECKPOINT_ALTITUDE - FINAL_ALTITUDE) / -DESCENT_RATE_GUESS
 CRUISE_DURATION_GUESS = MISSION_DURATION - CLIMB_DURATION_GUESS - DESCENT_DURATION_GUESS
 
 
-def _make_phase(dhdt_fixed=None, fix_initial=False, num_segments=12):
+def _make_phase(dhdt_fixed=None, fix_initial=False, num_segments=6):
     """Build a Phase using the shared ODE, airspeed control, and stall-margin constraint.
 
     `dhdt_fixed`: pass a float (climb/sink rate in m/s, 0.0 for level) to keep dhdt fixed
