@@ -1,0 +1,19 @@
+variables: (x, y, h, V, gg, psi, aa, phi, Trottle)
+
+Case Study 1:
+(x0, y0, h0) -> (0, 0, 100)
+(xf, yf, hf) -> (100, 0, 0)
+tf = 28.75s -> Optimization Complete
+Elapsed time: 129.62 seconds
+
+Case Study 2:
+(x0, y0, h0) -> (0, 0, 1000)
+(xf, yf, hf) -> (1000, 0, 0)
+tf = 150.01s -> Optimization Failed: Positive directional derivative for linesearch (Exit mode 8)
+Elapsed time: 629.06 seconds
+
+Case Study 3: (updated limits for phi, aa, etc)
+(x0, y0, h0) -> (0, 0, 100)
+(xf, yf, hf) -> (100, 0, 10)
+tf = 5.28s -> Optimization Failed: Positive directional derivative for linesearch (Exit mode 8)
+Elapsed time: 366.94 seconds

@@ -16,7 +16,7 @@ class SolarAircraftODE(om.ExplicitComponent):
         # Inputs: States & Controls
         self.add_input('psi', val=np.zeros(nn), units='rad', desc='Heading angle')
         self.add_input('phi', val=np.zeros(nn), units='rad', desc='Bank angle (control)')
-        self.add_input('V', val=np.ones(nn)*15.0, units='m/s', desc='Airspeed (control)')
+        self.add_input('V', val=np.ones(nn), units='m/s', desc='Airspeed (control)')
 
         # Outputs: Derivatives for Dymos
         self.add_output('x_dot', val=np.zeros(nn), units='m/s')
@@ -36,7 +36,7 @@ class SolarAircraftODE(om.ExplicitComponent):
         m, g, rho, S = 1.2, 9.81, 1.29, 0.1566
         K, CD0 = 0.1, 0.011
         eta_sol, eta_prop, P_sd = 0.2, 0.7, 380.0
-        e, a = np.radians(0), np.radians(0)  # Sun elevation and azimuth angles
+        a, e = np.radians(0), np.radians(45)  # Sun elevation and azimuth angles
 
         # Kinematic Dynamics (Eqs. 18-20)
         outputs['x_dot'] = V * np.cos(psi)
@@ -45,7 +45,8 @@ class SolarAircraftODE(om.ExplicitComponent):
 
         # Power Balance (Objective Integration)
         P_in = eta_sol * P_sd * S * (np.cos(phi)*np.sin(e) - np.cos(e)*np.sin(a - psi)*np.sin(phi))
-        P_req = 0.5 * rho * S * V**3 * (CD0 + (4*K*(m*g)**2/np.cos(phi)**2)/(rho**2 * S**2 * V**4))
+
+        P_req = 0.5 * rho * S * V**3 * (CD0 + (4*K*(m*g)**2/(np.cos(phi)**2) * rho**2 * S**2 * V**4))
         P_out = P_req / eta_prop
 
         outputs['E_dot'] = P_in - P_out
@@ -73,11 +74,11 @@ prob.driver.options['maxiter'] = 1500  # Default is often 100
 
 # 3. SLSQP-specific optimizer options (passes directly to scipy.optimize.minimize)
 prob.driver.opt_settings['maxiter'] = 1500
-prob.driver.opt_settings['ftol'] = 1e-3  # Function tolerance for convergence
+prob.driver.opt_settings['ftol'] = 1e-5  # Function tolerance for convergence
 
 
 # 3. Configure Time Variable
-phase.set_time_options(fix_initial=True, duration_bounds=(50, 400), units='s')
+phase.set_time_options(fix_initial=True, duration_bounds=(50, 2500), units='s')
 
 # 4. Configure States
 phase.add_state('x', rate_source='x_dot', fix_initial=True, units='m')
@@ -91,7 +92,7 @@ phase.add_boundary_constraint('y', loc='final', equals=1300.0)
 
 # 5. Configure Controls (bank angle phi, speed V)
 phase.add_control('phi', lower=np.radians(-45), upper=np.radians(45), units='rad')
-phase.add_control('V', lower=15.0, upper=16.0, units='m/s')
+phase.add_control('V', lower=10.0, upper=30.0, units='m/s')
 
 # 6. Set Objective: Maximize final accumulated net energy E_total [Eq. (16)]
 phase.add_objective('E', loc='final', scaler=-1.0)
@@ -100,10 +101,10 @@ phase.add_objective('E', loc='final', scaler=-1.0)
 prob.setup()
 
 # Set Initial Guesses
-prob.set_val('traj.phase0.t_duration', 400.0)
+prob.set_val('traj.phase0.t_duration', 200.0)
 prob.set_val('traj.phase0.states:x', phase.interp('x', [0, 700]))
 prob.set_val('traj.phase0.states:y', phase.interp('y', [0, 1300]))
-prob.set_val('traj.phase0.states:psi', phase.interp('psi', [np.radians(127.0), np.radians(180.0)]))
+prob.set_val('traj.phase0.states:psi', phase.interp('psi', [np.radians(127.0), np.radians(270.0)]))
 prob.set_val('traj.phase0.controls:phi', np.radians(0.0))
 prob.set_val('traj.phase0.controls:V', 15.0)
 

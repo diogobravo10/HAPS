@@ -17,10 +17,14 @@ class Kinematics(om.ExplicitComponent):
         self.add_input('phi', val=np.zeros(nn), units='rad', desc='Bank angle (control)')
         self.add_input('V', val=np.ones(nn), units='m/s', desc='Airspeed (control)')
 
+        self.add_input('gg', val=np.zeros(nn), units='rad', desc='Glide angle (control)')
+
         # Outputs: Variable to be integrated
         self.add_output('x_dot', val=np.zeros(nn), units='m/s')
         self.add_output('y_dot', val=np.zeros(nn), units='m/s')
         self.add_output('psi_dot', val=np.zeros(nn), units='rad/s')
+
+        self.add_output('h_dot', val=np.zeros(nn), units='m/s')
 
         # Used to compute the derivatives of the outputs w.r.t. each of the inputs analytically or fd or cs
         arange = np.arange(self.options['num_nodes'])
@@ -34,16 +38,21 @@ class Kinematics(om.ExplicitComponent):
         self.declare_partials(of='psi_dot', wrt='V', rows=arange, cols=arange)
         self.declare_partials(of='psi_dot', wrt='phi', rows=arange, cols=arange)
 
+        self.declare_partials(of='h_dot', wrt='V', rows=arange, cols=arange)
+        self.declare_partials(of='h_dot', wrt='gg', rows=arange, cols=arange)
+
     def compute(self, inputs, outputs):
         # Used to compute the outputs, given the inputs.
         psi = inputs['psi']
         phi = inputs['phi']
         V = inputs['V']
+        gg = inputs['gg']
 
         # Kinematic Dynamics
         outputs['x_dot'] = V * np.cos(psi)
         outputs['y_dot'] = V * np.sin(psi)
         outputs['psi_dot'] = (g * np.tan(phi)) / V
+        outputs['h_dot'] = V * np.sin(gg)
 
     def compute_partials(self, inputs, partials):
 
@@ -51,9 +60,12 @@ class Kinematics(om.ExplicitComponent):
         psi = inputs['psi']
         phi = inputs['phi']
         V = inputs['V']
+        gg = inputs['gg']
 
         cos_psi = np.cos(psi)
         sin_psi = np.sin(psi)
+        cos_gg = np.cos(gg)
+        sin_gg = np.sin(gg)
 
         partials['x_dot', 'V'] = cos_psi
         partials['x_dot', 'psi'] = -V * sin_psi
@@ -63,3 +75,6 @@ class Kinematics(om.ExplicitComponent):
 
         partials['psi_dot', 'V'] = -(g * np.tan(phi)) / (V**2)
         partials['psi_dot', 'phi'] = (g / V) / (np.cos(phi)**2)
+
+        partials['h_dot', 'V'] = sin_gg
+        partials['h_dot', 'gg'] = V * cos_gg
