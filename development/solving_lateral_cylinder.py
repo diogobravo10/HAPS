@@ -3,7 +3,7 @@ import openmdao.api as om
 import dymos as dm
 from dymos.examples.plotting import plot_results
 import matplotlib.pyplot as plt
-import lateral_kinematics as kinematics
+import lateral_kinematics_cylinder as kinematics
 import time
 
 
@@ -23,20 +23,22 @@ prob.driver.declare_coloring()
 traj = prob.model.add_subsystem('traj', dm.Trajectory())
 phase = traj.add_phase('phase0',
                        dm.Phase(ode_class= kinematics.Kinematics,
-                                transcription=dm.Radau(num_segments=10, order=3)))
+                                transcription=dm.Radau(num_segments=30, order=3)))
 
 
 
 # Configure Time Variable
-phase.set_time_options(fix_initial=True, duration_bounds=(3600, 4000))
+phase.set_time_options(fix_initial=True, duration_bounds=(0.5, 40000))
 
 # Configure States
-phase.add_state('x', rate_source='x_dot', fix_initial=True, fix_final=True,units='m')
-phase.add_state('y', rate_source='y_dot', fix_initial=True, fix_final=True, units='m')
-phase.add_state('psi', rate_source='psi_dot', fix_initial=False, fix_final=False,  lower=np.radians(-179), upper=np.radians(179), units='rad')
+phase.add_state('tt', rate_source='tt_dot', fix_initial=True, fix_final=True,units='rad')
 
 phase.add_control('V', lower=8, upper=12, units='m/s')
-phase.add_control('phi', lower=np.radians(-60), upper=np.radians(60), units='rad') # Singularity at phi = 90
+
+phase.add_parameter('R', val=1000, units='m', opt=False) 
+
+
+phase.add_timeseries_output(['x', 'y'])
 
 # Minimize time at the end of the phase
 phase.add_objective('time', loc='final', scaler=1)
@@ -48,19 +50,16 @@ prob.setup()
 
 # Set the initial values
 phase.set_time_val(initial=0.0, duration=100.0)
-phase.set_state_val('x', [0, 17000])
-phase.set_state_val('y', [-1000, 1000])
-phase.set_state_val('psi', [np.radians(0), np.radians(0)])
+phase.set_state_val('tt', [0, 10*np.pi])
 
 phase.set_control_val('V', [3, 10])
-phase.set_control_val('phi', [np.radians(0), np.radians(0)])
 
 
 start_time = time.perf_counter() # High-resolution start
 
 # Solve for the optimal trajectory
 dm.run_problem(prob)
-dm.run_problem(prob, refine_iteration_limit=2, refine_method='hp')
+# dm.run_problem(prob, refine_iteration_limit=2, refine_method='hp')
 
 elapsed = time.perf_counter() - start_time
 print(f"Elapsed time: {elapsed:.2f} seconds")
@@ -73,11 +72,7 @@ print(prob.get_val('traj.phase0.timeseries.time')[-1])
 exp_out = traj.simulate()
 
 plot_results([('traj.phase0.timeseries.x', 'traj.phase0.timeseries.y',
-               'x (m)', 'y (m)'),
-              ('traj.phase0.timeseries.time', 'traj.phase0.timeseries.psi',
-               'time (s)', 'psi (deg)'),
-              ('traj.phase0.timeseries.time', 'traj.phase0.timeseries.phi',
-               'time (s)', 'phi (deg)')],
+               'x (m)', 'y (m)')],
              title='Brachistochrone Solution\nHigh-Order Gauss-Lobatto Method',
              p_sol=prob,
             p_sim=exp_out
@@ -87,21 +82,11 @@ plot_results([('traj.phase0.timeseries.x', 'traj.phase0.timeseries.y',
 fig = plt.gcf()
 axs = fig.axes
 
-# Convert psi and phi traces from radians (native units) to degrees for display
-for ax in (axs[1], axs[2]):
-    for line in ax.get_lines():
-        line.set_ydata(np.degrees(line.get_ydata()))
-    ax.relim()
-    ax.autoscale_view()
-
 # x-y trajectory
-axs[0].set_xlim(-1000, 20000)
-axs[0].set_ylim(-1500, 1350)
+# axs[0].set_xlim(-1000, 20000)
+# axs[0].set_ylim(-1500, 1350)
 axs[0].ticklabel_format(axis='x', style='plain', useOffset=False)
 
-# Heading angle
-axs[1].set_ylim(-180, 180)
-axs[1].set_yticks([-180, -90, 0, 90, 180])
 
 
 
