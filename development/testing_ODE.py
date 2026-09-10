@@ -4,6 +4,7 @@ import numpy as np
 import openmdao.api as om
 import lateral_kinematics as lateralkinematics
 import kinematics3D as kinematics_3d
+import longitudinal_kinematics as longitudinalkinematics
 
 
 def test_lateral_kinematics():
@@ -70,6 +71,30 @@ def test_3d_kinematics():
     return p.check_partials(method='fd', form='central', step=1e-6, compact_print=True)
 
 
+def test_longitudinal_kinematics():
+    num_nodes = 5
+
+    p = om.Problem(model=om.Group())
+
+    ivc = p.model.add_subsystem('vars', om.IndepVarComp())
+    ivc.add_output('V', shape=(num_nodes,), units='m/s')
+    ivc.add_output('gg', shape=(num_nodes,), units='deg')
+
+    p.model.add_subsystem('ode', longitudinalkinematics.Kinematics(num_nodes=num_nodes))
+
+    p.model.connect('vars.V', 'ode.V')
+    p.model.connect('vars.gg', 'ode.gg')
+
+    p.setup(force_alloc_complex=True)
+
+    p.set_val('vars.V', 10*np.random.random(num_nodes))
+    p.set_val('vars.gg', np.random.uniform(-10, 10, num_nodes))
+
+    p.run_model()
+    return p.check_partials(method='cs', compact_print=True)
+
+
 if __name__ == '__main__':
     # test_lateral_kinematics()
-    test_3d_kinematics()
+    # test_3d_kinematics()
+    test_longitudinal_kinematics()
