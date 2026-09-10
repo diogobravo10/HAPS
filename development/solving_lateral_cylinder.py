@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import lateral_kinematics_cylinder as kinematics
 import time
 
+total_duration = 24 * 3600  # s - single combined duration bound for all 3 stages
 
 # Initialize the Problem and the optimization driver
 prob = om.Problem(model=om.Group())
@@ -28,10 +29,10 @@ phase = traj.add_phase('phase0',
 
 
 # Configure Time Variable
-phase.set_time_options(fix_initial=True, duration_bounds=(0.5, 40000))
+phase.set_time_options(fix_initial=True, duration_bounds=(0.5, total_duration))
 
 # Configure States
-phase.add_state('tt', rate_source='tt_dot', fix_initial=True, fix_final=True,units='rad')
+phase.add_state('tt', rate_source='tt_dot', fix_initial=True, fix_final=False,units='rad')
 
 phase.add_control('V', lower=8, upper=12, units='m/s')
 
@@ -40,8 +41,8 @@ phase.add_parameter('R', val=1000, units='m', opt=False)
 
 phase.add_timeseries_output(['x', 'y'])
 
-# Minimize time at the end of the phase
-phase.add_objective('time', loc='final', scaler=1)
+# Maximize the angular position reached by the end of the phase
+phase.add_objective('tt', loc='final', scaler=-1)
 
 prob.model.linear_solver = om.DirectSolver()
 

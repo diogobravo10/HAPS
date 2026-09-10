@@ -14,7 +14,7 @@ lateral_paths_file = 'solving_lateral_paths.json'
 # (e.g. many IDE "Run" buttons use the workspace root, not the file's folder)
 # and a plain relative path can silently resolve outside the repo.
 _this_dir = os.path.dirname(os.path.abspath(__file__))
-plots_out_dir = os.path.join(_this_dir, '..', 'nice_plots_3d_trajectory', 'Trajectory Optimization')
+plots_out_dir = os.path.join(_this_dir, '..', 'nice_plots_3d_trajectory', 'Trajectory Optimization', 'Cylinder')
 
 # Shared phase color code - same mapping used across all figures
 colors = {'climb': 'tab:blue', 'cruise': 'tab:green', 'descent': 'tab:red'}
@@ -84,48 +84,43 @@ def main():
     axs1[2].set_xlabel('time (s)')
     axs1[2].set_ylabel('gamma (deg)')
 
-    # --- Lateral: y(x), psi(t), phi(t) ---
-    # The lateral maneuver is now a sequence of linked 1-hour phases (seg0, seg1, ...)
-    # rather than a single 'phase0', so its variables need stitching too.
+    # --- Lateral: y(x), tt(t) ---
+    # The lateral maneuver is a single phase ('phase0' for the cylinder loiter model,
+    # or seg0, seg1, ... for the older multi-segment layout), so seg_names still
+    # drives the stitching either way.
     seg_names = lat_paths['seg_names']
-    x_sol, y_sol, t_lat_sol, psi_sol, phi_sol = (
-        stitch(v, lat_sol, seg_names) for v in ('x', 'y', 'time', 'psi', 'phi'))
-    x_sim, y_sim, t_lat_sim, psi_sim, phi_sim = (
-        stitch(v, lat_sim, seg_names) for v in ('x', 'y', 'time', 'psi', 'phi'))
+    x_sol, y_sol, t_lat_sol, tt_sol = (
+        stitch(v, lat_sol, seg_names) for v in ('x', 'y', 'time', 'tt'))
+    x_sim, y_sim, t_lat_sim, tt_sim = (
+        stitch(v, lat_sim, seg_names) for v in ('x', 'y', 'time', 'tt'))
 
-    psi_sol = np.rad2deg(psi_sol)
-    psi_sim = np.rad2deg(psi_sim)
-    phi_sol = np.rad2deg(phi_sol)
-    phi_sim = np.rad2deg(phi_sim)
+    tt_sol = np.rad2deg(tt_sol)
+    tt_sim = np.rad2deg(tt_sim)
 
     # Which longitudinal phase each lateral solution point falls into, based on
     # absolute time - same color code as the longitudinal plots and the 3D plot.
     phase_of_lat_t = np.where(t_lat_sol < t_split1, 'climb',
                      np.where(t_lat_sol < t_split2, 'cruise', 'descent'))
 
-    fig2, axs2 = plt.subplots(3, 1, figsize=(6, 8))
+    fig2, axs2 = plt.subplots(2, 1, figsize=(6, 6))
     fig2.suptitle('Lateral trajectory')
 
     for name, color in colors.items():
         mask = phase_of_lat_t == name
         if np.any(mask):
             axs2[0].plot(x_sol[mask], y_sol[mask], '-o', ms=4, color=color, label=name)
-            axs2[1].plot(t_lat_sol[mask], psi_sol[mask], '-o', ms=4, color=color)
-            axs2[2].plot(t_lat_sol[mask], phi_sol[mask], '-o', ms=4, color=color)
+            axs2[1].plot(t_lat_sol[mask], tt_sol[mask], '-o', ms=4, color=color)
 
     axs2[0].plot(x_sim, y_sim, '-', color='gray', lw=2, alpha=0.6, label='simulation')
-    axs2[1].plot(t_lat_sim, psi_sim, '-', color='gray', lw=2, alpha=0.6)
-    axs2[2].plot(t_lat_sim, phi_sim, '-', color='gray', lw=2, alpha=0.6)
+    axs2[1].plot(t_lat_sim, tt_sim, '-', color='gray', lw=2, alpha=0.6)
 
     axs2[0].set_xlabel('x (m)')
     axs2[0].set_ylabel('y (m)')
     axs2[0].set_aspect('equal')
     axs2[0].legend()
 
-    axs2[1].set_ylabel('psi (deg)')
-
-    axs2[2].set_xlabel('time (s)')
-    axs2[2].set_ylabel('phi (deg)')
+    axs2[1].set_xlabel('time (s)')
+    axs2[1].set_ylabel('tt (deg)')
 
     # --- 3D (x, y, h): lateral ground track combined with the longitudinal altitude
     # profile at those same times, colored by which longitudinal phase each point
