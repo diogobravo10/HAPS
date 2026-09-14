@@ -1,0 +1,63 @@
+import numpy as np
+import openmdao.api as om
+from ambiance import Atmosphere
+
+# Parameters
+g = 9.81
+chord = 1 # dimensionalize by a 1meter
+
+
+class DragPowerDissipation(om.ExplicitComponent):
+    def initialize(self):
+        self.options.declare('num_nodes', types=int)
+
+    def setup(self):
+        nn = self.options['num_nodes']
+
+        # Inputs: States & Controls - used to compute outputs
+        self.add_input('V', val=np.ones(nn), units='m/s', desc='Airspeed (control)')
+        self.add_input('h', val=np.zeros(nn), units='m', desc='Altitude (state)')
+        self.add_input('aa', val=np.zeros(nn), units='rad', desc='Angle of Attack (control)')
+
+        # Outputs: Variable to be integrated
+        self.add_output('DV_sw', val=np.zeros(nn), units='W/m**2')
+
+        # Used to compute the derivatives of the outputs w.r.t. each of the inputs analytically or fd or cs
+        arange = np.arange(self.options['num_nodes'])
+
+        # ambiance.Atmosphere (used in compute() below) rejects complex input, so these
+        # can't use complex-step - fd instead, same as aero_module's other consumer
+        # (kinematics3D.py's Kinematics3D).
+        self.declare_partials(of='DV_sw', wrt='V', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='DV_sw', wrt='h', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='DV_sw', wrt='aa', rows=arange, cols=arange, method='fd')
+
+
+    def compute(self, inputs, outputs):
+        # Used to compute the outputs, given the inputs.
+        V = inputs['V']
+        h = inputs['h']
+        aa = inputs['aa']
+
+        CD, CLmax = 0.0708, 1.2
+
+        # CL and CD are fitted to a set of equations of the Reynolds number Re and the attack angle aa, 
+        # where the Reynolds number is calculated according to current altitude and flight velocity
+        rho = Atmosphere(h).density
+        kviscosity = Atmosphere(h).kinematic_viscosity
+
+        Re = V * chord / kviscosity
+
+        # E216 low reynolds number airfoil
+        # a1, a2, a3, a4, a5, a6 = 3.77421e-1, 1.24316e-1, 7.64615e-7, -5.68228e-3, -6.44553e-13, -2.65058e-8
+        b1, b2, b3, b4, b5, b6, b7, b8, b9 = 6.44815e-2, -1.87841e-7, 1.79326e-13, -1.11385e-2, 3.75046e-8, -3.10591e-14, 1.09753e-3, -2.36796e-9, 1.58461e-15
+
+        # CL = a1 + a2 * aa + a3 * Re + a4 * aa**2 + a5 * Re**2 + a6 * aa * Re
+        CD = b1 + b2 * Re + b3 * Re**2 + b4 * aa + b5 * aa*Re + b6 * aa * Re**2 + b7 * aa**2 + b8 * aa**2 * Re + b9 * aa**2 * Re**2
+
+        # L_sw = 1/2 * rho * V**2 * CL
+        DV_sw =  1/2 * rho * V**3 * CD
+
+        outputs['DV_sw'] = DV_sw
+
+

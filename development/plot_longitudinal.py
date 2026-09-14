@@ -24,10 +24,13 @@ def main():
 
     t_sol, h_sol, V_sol, gg_sol = stitch('time', sol_case), stitch('h', sol_case), stitch('V', sol_case), stitch('gg', sol_case)
     t_sim, h_sim, V_sim, gg_sim = stitch('time', sim_case), stitch('h', sim_case), stitch('V', sim_case), stitch('gg', sim_case)
+    J_PER_KWH = 3.6e6
+    DV_sw_int_sol = stitch('DV_sw_int', sol_case) / J_PER_KWH
+    DV_sw_int_sim = stitch('DV_sw_int', sim_case) / J_PER_KWH
     t_split1 = sol_case.get_val('traj.climb.timeseries.time')[-1, 0]
     t_split2 = sol_case.get_val('traj.cruise.timeseries.time')[-1, 0]
 
-    fig, axs = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
+    fig, axs = plt.subplots(3, 1, figsize=(6, 8), sharex=True)
     fig.suptitle('Climb + Cruise + Descent (maximize cruise duration)')
 
     axs[0].plot(t_sol, h_sol, 'o', ms=4, label='solution')
@@ -41,7 +44,6 @@ def main():
     axs[1].plot(t_sim, V_sim, '-', label='simulation')
     axs[1].axvline(t_split1, color='gray', ls='--', lw=1)
     axs[1].axvline(t_split2, color='gray', ls='--', lw=1)
-    axs[1].set_xlabel('time (s)')
     axs[1].set_ylabel('V (m/s)')
 
     axs[2].plot(t_sol, gg_sol, 'o', ms=4, label='solution')
@@ -50,6 +52,16 @@ def main():
     axs[2].axvline(t_split2, color='gray', ls='--', lw=1)
     axs[2].set_xlabel('time (s)')
     axs[2].set_ylabel('gg (rad)')
+
+    fig2, ax2 = plt.subplots(figsize=(8, 5))
+    fig2.suptitle('Energy dissipated through drag')
+    ax2.plot(t_sol, DV_sw_int_sol, 'o', ms=4, label='solution')
+    ax2.plot(t_sim, DV_sw_int_sim, '-', label='simulation')
+    ax2.axvline(t_split1, color='gray', ls='--', lw=1, label='phase boundary')
+    ax2.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax2.set_xlabel('time (s)')
+    ax2.set_ylabel('Energy dissipated through drag (kWh/m^2)')
+    ax2.legend()
 
     plt.show()
 
