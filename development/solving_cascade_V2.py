@@ -134,7 +134,7 @@ def solve_longitudinal():
 
 lateral_paths_file = 'solving_lateral_paths.json'
 
-lateral_R = 1000.0  # m, fixed loiter radius (parameter, not optimized) - adjust as needed
+lateral_R = 50000.0  # m, fixed loiter radius (parameter, not optimized) - adjust as needed
 lateral_num_segments = 500  # Radau segments spanning the whole mission duration
 
 
@@ -171,7 +171,7 @@ def solve_lateral(t_data, V_data, R=lateral_R, num_segments=lateral_num_segments
     # tt_final = (total path length) / R, so tighter turns always increase the turn count
     # and the optimizer will drive R straight to this lower bound. Set it to the tightest
     # radius your aircraft can actually sustain - this ODE has no bank-angle limit of its own.
-    phase.add_parameter('R', val=R, units='m', opt=True, lower=500.0)
+    phase.add_parameter('R', val=R, units='m', opt=True, lower=20000.0)
     phase.add_timeseries_output(['x', 'y'])
 
     # Maximize the number of turns around the cylinder (tt_final / 2*pi) by letting
