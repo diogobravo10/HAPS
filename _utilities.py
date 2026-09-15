@@ -88,6 +88,129 @@ def instantaneous_power_density(h, lat, start_date, t, solar_cell_efficiency=0.1
     return power_density
 
 
+# solarpy's pressure() rejects array input (its check_alt() only accepts a bare
+# int/float), so its tiny altitude/pressure lookup table is duplicated here for
+# use with np.interp on an array directly.
+_PRESSURE_ALT_TABLE = np.append(np.linspace(0, 20e3, 21), np.linspace(22e3, 24e3, 2))
+_PRESSURE_TABLE = np.array([101325, 89876, 79501, 70121, 61660, 54048, 47217, 41105,
+                             35651, 30800, 26499, 22699, 19399, 16579, 14170, 12111,
+                             10352, 8849, 7565, 6467, 5529, 4047, 2972])
+
+
+def instantaneous_power_density_vect(h, lat, start_date, t, solar_cell_efficiency=0.15, vnorm=np.array([0, 0, -1])):
+    """Vectorized equivalent of instantaneous_power_density.
+
+    instantaneous_power_density loops through solarpy's scalar API one node at a
+    time (each iteration builds a fresh datetime object and calls several
+    trig-heavy solarpy functions) - fine for a handful of calls, but this is an
+    ODE right-hand side evaluated at every node on every function/gradient
+    evaluation during optimization, where that per-node Python loop dominates
+    runtime. This reimplements the same solar-geometry formulas solarpy uses
+    internally (declination, hour angle, zenith angle, Kasten-Young air mass,
+    extraterrestrial radiation - see solarpy.declination/hour_angle/theta_z/
+    solar_azimuth/solar_altitude/sunset_hour_angle/beam_irradiance/gon) directly
+    with NumPy so the whole node array is computed in one vectorized pass.
+
+    Matches instantaneous_power_density's inputs/outputs, with one simplification:
+    solarpy raises NoSunsetNoSunrise for polar permanent-day/permanent-night dates
+    and special-cases it; here that condition is instead approximated by clamping
+    the sunset-hour-angle cosine to [-1, 1], which is exact for any latitude that
+    actually has a sunrise and sunset (true for this project's lat=37.5) and only
+    an approximation at polar latitudes/dates.
+
+    Returns
+    - power_density: instantaneous available power density (W/m^2), broadcast(t, h) shape
+    """
+    t_arr, h_arr = np.broadcast_arrays(np.atleast_1d(t).astype(float), np.atleast_1d(h).astype(float))
+    h_arr = np.clip(h_arr, 0.0, 24000.0)
+
+    vnorm_arr = np.asarray(vnorm, dtype=float)
+    per_node_vnorm = vnorm_arr.ndim > 1
+
+    # Absolute date/time for every node, vectorized via numpy datetime64 instead
+    # of one Python `datetime + timedelta` per node.
+    base = np.datetime64(start_date)
+    dates64 = base + (t_arr * 1e6).astype('timedelta64[us]')
+    day_trunc = dates64.astype('datetime64[D]')
+    year_start = dates64.astype('datetime64[Y]').astype('datetime64[D]')
+    day_of_year = (day_trunc - year_start).astype(int) + 1
+
+    # hour_angle() only reads date.hour/date.minute (whole minutes, no seconds) -
+    # matched here by truncating to the minute before taking the fractional hour.
+    minute_trunc = dates64.astype('datetime64[m]')
+    hour_frac = (minute_trunc - day_trunc) / np.timedelta64(1, 'h')
+
+    lat_rad = np.radians(lat)
+
+    # declination()
+    B = np.radians((day_of_year - 1) * (360.0 / 365.0))
+    dec = (0.006918 - 0.399912 * np.cos(B) + 0.070257 * np.sin(B)
+           - 0.006758 * np.cos(2 * B) + 0.000907 * np.sin(2 * B)
+           - 0.002679 * np.cos(3 * B) + 0.00148 * np.sin(3 * B))
+
+    # hour_angle(): 15 deg/hour, morning < 0 < afternoon
+    w = np.radians((hour_frac - 12.0) * 15.0)
+
+    # theta_z()
+    cos_theta_z = np.clip(np.sin(dec) * np.sin(lat_rad) + np.cos(dec) * np.cos(lat_rad) * np.cos(w),
+                           -1.0, 1.0)
+    theta_zenith = np.arccos(cos_theta_z)
+
+    # sunset_hour_angle() / sunrise_hour_angle() - clamped instead of raising
+    # NoSunsetNoSunrise (see docstring)
+    cos_ws = np.clip(-np.tan(lat_rad) * np.tan(dec), -1.0, 1.0)
+    w_ss = np.arccos(cos_ws)
+    is_night = np.abs(w) > w_ss
+
+    # solar_azimuth()
+    tmp = np.clip((np.cos(theta_zenith) * np.sin(lat_rad) - np.sin(dec)) /
+                   (np.sin(theta_zenith) * np.cos(lat_rad)), -1.0, 1.0)
+    sign = np.where(w == 0, 1.0, np.sign(w))
+    solar_az = sign * np.arccos(tmp)
+
+    # solar_altitude()
+    solar_alt = np.arcsin(np.cos(theta_zenith))
+
+    # solar_vector_ned(), zeroed at night
+    vsol = np.stack([-np.cos(solar_az) * np.cos(solar_alt),
+                      -np.sin(solar_az) * np.cos(solar_alt),
+                      -np.sin(solar_alt)], axis=-1)
+    vsol[is_night] = 0.0
+
+    # irradiance_on_plane(): angle between the panel normal and the sun vector
+    vnorm_b = np.broadcast_to(vnorm_arr, vsol.shape)
+    vnorm_norm = np.linalg.norm(vnorm_b, axis=-1)
+    vsol_norm = np.linalg.norm(vsol, axis=-1)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        cos_theta = np.where(vsol_norm > 0,
+                              np.einsum('...i,...i->...', vnorm_b, vsol) / (vnorm_norm * vsol_norm),
+                              0.0)
+
+    # beam_irradiance()
+    alpha_int = 0.32
+    prel = np.interp(h_arr, _PRESSURE_ALT_TABLE, _PRESSURE_TABLE) / _PRESSURE_TABLE[0]
+
+    earth_radius = 6378137.0  # [m]
+    theta_lim = 0.5 * np.pi + np.arccos(earth_radius / (earth_radius + h_arr))
+    theta_zenith_deg = np.clip(np.degrees(theta_zenith), None, 91.5)  # air_mass_kastenyoung1989's saturation
+    m = np.exp(-0.0001184 * h_arr) / (np.cos(np.radians(theta_zenith_deg)) +
+                                       0.50572 * (96.07995 - theta_zenith_deg) ** (-1.634))
+    gon = 1367 * (1.00011 + 0.034221 * np.cos(B) + 0.00128 * np.sin(B)
+                  + 0.000719 * np.cos(2 * B) + 0.000077 * np.sin(2 * B))
+    G_beam = np.where(theta_zenith < theta_lim, gon * np.exp(-prel * m * alpha_int), 0.0)
+
+    G = np.where(cos_theta > 0, G_beam * cos_theta, 0.0)
+    G[is_night] = 0.0
+
+    power_density = G * solar_cell_efficiency
+
+    if np.isscalar(t) and np.isscalar(h) and not per_node_vnorm:
+        return power_density.item()
+    return power_density
+
+
+
+
 def yearly_mean_power_contour(h, latitudes, days, solar_cell_efficiency = 0.15, vnorm = np.array([0, 0, -1]), step=timedelta(minutes=15)):
     """Compute and plot a latitude vs day contour of mean daily power.
 

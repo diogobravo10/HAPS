@@ -27,6 +27,8 @@ def main():
     J_PER_KWH = 3.6e6
     DV_sw_int_sol = stitch('DV_sw_int', sol_case) / J_PER_KWH
     DV_sw_int_sim = stitch('DV_sw_int', sim_case) / J_PER_KWH
+    Psol_sw_int_sol = stitch('Psol_sw_int', sol_case) / J_PER_KWH
+    Psol_sw_int_sim = stitch('Psol_sw_int', sim_case) / J_PER_KWH
     t_split1 = sol_case.get_val('traj.climb.timeseries.time')[-1, 0]
     t_split2 = sol_case.get_val('traj.cruise.timeseries.time')[-1, 0]
 
@@ -54,13 +56,15 @@ def main():
     axs[2].set_ylabel('gg (rad)')
 
     fig2, ax2 = plt.subplots(figsize=(8, 5))
-    fig2.suptitle('Energy dissipated through drag')
-    ax2.plot(t_sol, DV_sw_int_sol, 'o', ms=4, label='solution')
-    ax2.plot(t_sim, DV_sw_int_sim, '-', label='simulation')
+    fig2.suptitle('Energy dissipated through drag vs. solar energy stored')
+    ax2.plot(t_sol, DV_sw_int_sol, 'o', ms=4, color='tab:red', label='Drag dissipated (solution)')
+    ax2.plot(t_sim, DV_sw_int_sim, '-', color='tab:red', label='Drag dissipated (simulation)')
+    ax2.plot(t_sol, Psol_sw_int_sol, 'o', ms=4, color='tab:orange', label='Solar energy stored (solution)')
+    ax2.plot(t_sim, Psol_sw_int_sim, '-', color='tab:orange', label='Solar energy stored (simulation)')
     ax2.axvline(t_split1, color='gray', ls='--', lw=1, label='phase boundary')
     ax2.axvline(t_split2, color='gray', ls='--', lw=1)
     ax2.set_xlabel('time (s)')
-    ax2.set_ylabel('Energy dissipated through drag (kWh/m^2)')
+    ax2.set_ylabel('Energy (kWh/m^2)')
     ax2.legend()
 
     plt.show()

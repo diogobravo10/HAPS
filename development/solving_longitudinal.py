@@ -4,6 +4,7 @@ import openmdao.api as om
 import dymos as dm
 import longitudinal_kinematics as kinematics
 import aero_module
+import solar_module
 import time
 import plot_longitudinal
 
@@ -16,18 +17,23 @@ climb_duration_guess = 16500.0
 cruise_duration_guess = 60000.0
 descent_duration_guess = total_duration - climb_duration_guess - cruise_duration_guess
 
-# Rough estimate of DV_sw 
+# Rough estimate of DV_sw
 dv_sw_guess_rate = 120
+# Rough estimate of Psol_sw
+psol_sw_guess_rate = 1350
 
 paths_file = 'solving_longitudinal_paths.json'
 
 
 class LongitudinalODE(om.Group):
-    """Flight-path kinematics plus aero_module's drag-power-dissipation subsystem.
+    """Flight-path kinematics plus aero_module's drag-power-dissipation and
+    solar_module's solar-power subsystems.
 
-    'V' is promoted from both subsystems so they share the same airspeed control;
-    'h' (state) and 'aa' (new angle-of-attack control) feed the aero subsystem only.
-    Exposes 'h_dot' (for the h state) and 'DV_sw' (for the DV_sw_int integral state).
+    'V' is promoted from kinematics/aero so they share the same airspeed control; 'h'
+    (state) is promoted from aero/solar so they share the same altitude; 'aa' (angle of
+    attack control) feeds aero only. 'time' is Dymos's auto-supplied absolute phase time,
+    promoted so solar can use it. Exposes 'h_dot' (for the h state), 'DV_sw' (for the
+    DV_sw_int integral state) and 'Psol_sw' (for the Psol_sw_int integral state).
     """
     def initialize(self):
         self.options.declare('num_nodes', types=int)
@@ -39,6 +45,8 @@ class LongitudinalODE(om.Group):
                             promotes_inputs=['V', 'gg'], promotes_outputs=['h_dot'])
         self.add_subsystem('aero', aero_module.DragPowerDissipation(num_nodes=nn),
                             promotes_inputs=['V', 'h', 'aa'], promotes_outputs=['DV_sw'])
+        self.add_subsystem('solar', solar_module.SolarPower(num_nodes=nn, start_date=solar_module.start_date, lat=solar_module.lat),
+                            promotes_inputs=['h', 'time'], promotes_outputs=['Psol_sw'])
 
 
 def main():
@@ -47,9 +55,9 @@ def main():
 
     prob.driver = om.ScipyOptimizeDriver() # Or pyOptSparseDriver(optimizer='IPOPT')
     prob.driver.options['optimizer'] = 'SLSQP'
-    prob.driver.options['maxiter'] = 500
+    prob.driver.options['maxiter'] = 1000
     prob.driver.options['tol'] = 1e-5
-    prob.driver.opt_settings['maxiter'] = 500
+    prob.driver.opt_settings['maxiter'] = 1000
     prob.driver.opt_settings['ftol'] = 1e-5
 
     prob.driver.declare_coloring()
@@ -62,36 +70,40 @@ def main():
     descent = traj.add_phase('descent', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=10, order=3)))
 
     # Phase1 : Climb
-    climb.set_time_options(fix_initial=True, duration_bounds=(3*10*90, total_duration), duration_ref=1e4)
+    climb.set_time_options(fix_initial=True, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
     climb.add_state('h', rate_source='h_dot', fix_initial=True, fix_final=True, units='m',
                      lower=0.0, upper=maximum_altitude, ref=1e4, defect_ref=1e4)
     climb.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
+    climb.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     climb.add_control('V', lower=8, upper=12, units='m/s')
     climb.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
     climb.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     climb.add_boundary_constraint('gg', loc='final', equals=0.0, units='rad')  # level off before cruise
 
     # Phase2 : Cruise
-    cruise.set_time_options(fix_initial=False, duration_bounds=(3*10*90, total_duration), duration_ref=1e4)
+    cruise.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
     cruise.add_state('h', rate_source='h_dot', fix_initial=False, fix_final=False, units='m', ref=1e4, defect_ref=1e4)
     cruise.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
+    cruise.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_control('V', lower=8, upper=12, units='m/s')
     cruise.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     cruise.add_parameter('gg', val=0.0, opt=False, units='rad')
     cruise.add_timeseries_output('gg')
 
     # Phase3 : Descent
-    descent.set_time_options(fix_initial=False, duration_bounds=(3*10*90, total_duration), duration_ref=1e4)
+    descent.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
     descent.add_state('h', rate_source='h_dot', fix_initial=False, fix_final=True, units='m',
                        lower=0.0, upper=maximum_altitude, ref=1e4, defect_ref=1e4)
     descent.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
+    descent.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     descent.add_control('V', lower=8, upper=12, units='m/s')
     descent.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
     descent.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     descent.add_boundary_constraint('time', loc='final', equals=total_duration, units='s', ref=1e4)
-    descent.add_objective('DV_sw_int', loc='final', ref=1e1)
+    # descent.add_objective('DV_sw_int', loc='final', ref=1e1)
+    descent.add_objective('Psol_sw_int', loc='final', ref=-1e5)
 
-    traj.link_phases(phases=['climb', 'cruise', 'descent'], vars=['h', 'time', 'DV_sw_int', 'V', 'aa'])
+    traj.link_phases(phases=['climb', 'cruise', 'descent'], vars=['h', 'time', 'DV_sw_int', 'Psol_sw_int', 'V', 'aa'])
 
     prob.model.linear_solver = om.DirectSolver()
 
@@ -102,21 +114,26 @@ def main():
     climb.set_time_val(initial=0.0, duration=climb_duration_guess)
     climb.set_state_val('h', [0, cruise_altitude])
     climb.set_state_val('DV_sw_int', [0, climb_duration_guess * dv_sw_guess_rate])
+    climb.set_state_val('Psol_sw_int', [0, climb_duration_guess * psol_sw_guess_rate])
     climb.set_control_val('V', [10, 12])
     climb.set_control_val('gg', [np.radians(4), np.radians(4)])
     climb.set_control_val('aa', [np.radians(2), np.radians(2)])
 
     dv_sw_int_climb_end = climb_duration_guess * dv_sw_guess_rate
+    psol_sw_int_climb_end = climb_duration_guess * psol_sw_guess_rate
     cruise.set_time_val(initial=climb_duration_guess, duration=cruise_duration_guess)
     cruise.set_state_val('h', [cruise_altitude, cruise_altitude])
     cruise.set_state_val('DV_sw_int', [dv_sw_int_climb_end, dv_sw_int_climb_end + cruise_duration_guess * dv_sw_guess_rate])
+    cruise.set_state_val('Psol_sw_int', [psol_sw_int_climb_end, psol_sw_int_climb_end + cruise_duration_guess * psol_sw_guess_rate])
     cruise.set_control_val('V', [10, 10])
     cruise.set_control_val('aa', [np.radians(2), np.radians(2)])
 
     dv_sw_int_cruise_end = dv_sw_int_climb_end + cruise_duration_guess * dv_sw_guess_rate
+    psol_sw_int_cruise_end = psol_sw_int_climb_end + cruise_duration_guess * psol_sw_guess_rate
     descent.set_time_val(initial=climb_duration_guess + cruise_duration_guess, duration=descent_duration_guess)
     descent.set_state_val('h', [cruise_altitude, 0])
     descent.set_state_val('DV_sw_int', [dv_sw_int_cruise_end, dv_sw_int_cruise_end + descent_duration_guess * dv_sw_guess_rate])
+    descent.set_state_val('Psol_sw_int', [psol_sw_int_cruise_end, psol_sw_int_cruise_end + descent_duration_guess * psol_sw_guess_rate])
     descent.set_control_val('V', [10, 8])
     descent.set_control_val('gg', [np.radians(-4), np.radians(-4)])
     descent.set_control_val('aa', [np.radians(2), np.radians(2)])
@@ -140,6 +157,7 @@ def main():
     print('Descent duration (s):', prob.get_val('traj.descent.t_duration')[0])
     print('Total mission time (s):', prob.get_val('traj.descent.timeseries.time')[-1, 0])
     print('Integral of DV_sw over mission (J/m^2):', prob.get_val('traj.descent.timeseries.DV_sw_int')[-1, 0])
+    print('Integral of Psol_sw over mission (J/m^2):', prob.get_val('traj.descent.timeseries.Psol_sw_int')[-1, 0])
 
     # Records
     solution_path = str(prob.get_outputs_dir() / solution_record_file)
