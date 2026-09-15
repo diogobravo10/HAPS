@@ -7,7 +7,7 @@ g = 9.81
 chord = 1 # dimensionalize by a 1meter
 M_sw = 3.0 # [kg/m^2]
 CD, CLmax = 0.0708, 1.2
-
+T_installed = 100 # N/m^2
 
 class DragPowerDissipation(om.ExplicitComponent):
     def initialize(self):
@@ -20,8 +20,11 @@ class DragPowerDissipation(om.ExplicitComponent):
         self.add_input('V', val=np.ones(nn), units='m/s', desc='Airspeed (control)')
         self.add_input('h', val=np.zeros(nn), units='m', desc='Altitude (state)')
         self.add_input('aa', val=np.zeros(nn), units='rad', desc='Angle of Attack (control)')
+        self.add_input('Tp', val=np.zeros(nn), units=None, desc='Throttle (control)')
+        self.add_input('gg', val=np.zeros(nn), units='rad', desc='Flight-path angle (control)')
 
         # Outputs: Variable to be integrated
+        self.add_output('V_dot', val=np.zeros(nn), units='m/s**2')
         self.add_output('DV_sw', val=np.zeros(nn), units='W/m**2')
         self.add_output('Vmargin', val=np.zeros(nn), units='m/s')
 
@@ -38,13 +41,22 @@ class DragPowerDissipation(om.ExplicitComponent):
         self.declare_partials(of='Vmargin', wrt='V', rows=arange, cols=arange, method='fd')
         self.declare_partials(of='Vmargin', wrt='h', rows=arange, cols=arange, method='fd')
 
+        self.declare_partials(of='V_dot', wrt='Tp', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='V_dot', wrt='V', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='V_dot', wrt='h', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='V_dot', wrt='aa', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='V_dot', wrt='gg', rows=arange, cols=arange, method='fd')
+
 
     def compute(self, inputs, outputs):
         # Used to compute the outputs, given the inputs.
         V = inputs['V']
         h = inputs['h']
         aa = inputs['aa']
+        Tp = inputs['Tp']
+        gg = inputs['gg']
 
+        sin_gg = np.sin(gg)
         # CL and CD are fitted to a set of equations of the Reynolds number Re and the attack angle aa, 
         # where the Reynolds number is calculated according to current altitude and flight velocity
         rho = Atmosphere(h).density
@@ -60,12 +72,13 @@ class DragPowerDissipation(om.ExplicitComponent):
         CD = b1 + b2 * Re + b3 * Re**2 + b4 * aa + b5 * aa*Re + b6 * aa * Re**2 + b7 * aa**2 + b8 * aa**2 * Re + b9 * aa**2 * Re**2
 
         # L_sw = 1/2 * rho * V**2 * CL
-        DV_sw =  1/2 * rho * V**3 * CD
+        D_sw =  1/2 * rho * V**2 * CD
 
         # Stall speed
         Vstall = np.sqrt(2 * M_sw * g / rho / CLmax)
 
-        outputs['DV_sw'] = DV_sw  # still debugging
+        outputs['DV_sw'] = D_sw * V 
         outputs['Vmargin'] = V - Vstall
+        outputs['V_dot'] = (Tp*T_installed - D_sw) / M_sw - g*sin_gg
 
 

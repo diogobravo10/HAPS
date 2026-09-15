@@ -6,6 +6,7 @@ import lateral_kinematics as lateralkinematics
 import kinematics3D as kinematics_3d
 import longitudinal_kinematics as longitudinalkinematics
 import potential_module
+import aero_module
 
 
 def test_lateral_kinematics():
@@ -146,9 +147,45 @@ def test_potential_module_totals():
     return p.check_totals(of=['pot.Epot_sw'], wrt=['vars.V', 'vars.gg'], method='cs', compact_print=True)
 
 
+def test_aero_module():
+    num_nodes = 5
+
+    p = om.Problem(model=om.Group())
+
+    ivc = p.model.add_subsystem('vars', om.IndepVarComp())
+    ivc.add_output('V', shape=(num_nodes,), units='m/s')
+    ivc.add_output('h', shape=(num_nodes,), units='m')
+    ivc.add_output('aa', shape=(num_nodes,), units='rad')
+    # Tp is a raw throttle fraction (units=None on the component); gg is 'rad', same
+    # as kinematics's gg, so the two can share a promoted name once wired into a Group.
+    ivc.add_output('Tp', shape=(num_nodes,))
+    ivc.add_output('gg', shape=(num_nodes,), units='rad')
+
+    p.model.add_subsystem('ode', aero_module.DragPowerDissipation(num_nodes=num_nodes))
+
+    for name in ['V', 'h', 'aa', 'Tp', 'gg']:
+        p.model.connect(f'vars.{name}', f'ode.{name}')
+
+    p.setup(force_alloc_complex=True)
+
+    # V kept well away from 0 (Re = V*chord/kviscosity), h kept within the standard
+    # atmosphere's range, same as test_3d_kinematics
+    p.set_val('vars.V', np.random.uniform(5, 15, num_nodes))
+    p.set_val('vars.h', np.random.uniform(15000, 24000, num_nodes))
+    p.set_val('vars.aa', np.radians(np.random.uniform(0, 10, num_nodes)))
+    p.set_val('vars.Tp', np.random.uniform(0, 1, num_nodes))
+    p.set_val('vars.gg', np.radians(np.random.uniform(-10, 10, num_nodes)))
+
+    p.run_model()
+    # ambiance.Atmosphere (used in compute()) rejects complex input, so this can't
+    # use complex-step - fd instead, same as aero_module's own declare_partials.
+    return p.check_partials(method='fd', form='central', step=1e-6, compact_print=True)
+
+
 if __name__ == '__main__':
     # test_lateral_kinematics()
     # test_3d_kinematics()
     # test_longitudinal_kinematics()
     # test_potential_module()
-    test_potential_module_totals()
+    # test_potential_module_totals()
+    test_aero_module()

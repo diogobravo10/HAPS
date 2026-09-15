@@ -38,15 +38,18 @@ class LongitudinalODE(om.Group):
     """Flight-path kinematics plus aero_module's drag-power-dissipation and
     solar_module's solar-power subsystems.
 
-    'V' is promoted from kinematics/aero so they share the same airspeed control; 'h'
-    (state) is promoted from aero/solar so they share the same altitude; 'aa' (angle of
-    attack control) feeds aero only. 'time' is Dymos's auto-supplied absolute phase time,
-    promoted so solar can use it. Exposes 'h_dot' (for the h state), 'DV_sw' (for the
-    DV_sw_int integral state), 'Psol_sw' (for the Psol_sw_int integral state), 'Net_sw'
-    (Psol_sw - DV_sw, for the Net_sw_int integral state - net energy collected minus
-    dissipated), 'Epot_sw' (for the Epot_sw_int integral state - potential energy gained/
-    lost while climbing/descending, tracked separately from Net_sw for now), and
-    'Vstall'/'Vmargin' (diagnostic outputs, not integrated into any state).
+    'V' (state) is promoted from kinematics/aero so they share the same airspeed; 'h'
+    (state) is promoted from aero/solar so they share the same altitude; 'gg' (flight-
+    path angle control) is promoted from kinematics/aero so they share it too - aero
+    needs it for V_dot's gravity component, same units ('rad') on both. 'aa' (angle of
+    attack control) and 'Tp' (throttle control) feed aero only. 'time' is Dymos's
+    auto-supplied absolute phase time, promoted so solar can use it. Exposes 'h_dot'
+    (for the h state), 'V_dot' (for the V state), 'DV_sw' (for the DV_sw_int integral
+    state), 'Psol_sw' (for the Psol_sw_int integral state), 'Net_sw' (Psol_sw - DV_sw,
+    for the Net_sw_int integral state - net energy collected minus dissipated),
+    'Epot_sw' (for the Epot_sw_int integral state - potential energy gained/lost while
+    climbing/descending, tracked separately from Net_sw for now), and 'Vstall'/'Vmargin'
+    (diagnostic outputs, not integrated into any state).
     """
     def initialize(self):
         self.options.declare('num_nodes', types=int)
@@ -57,7 +60,7 @@ class LongitudinalODE(om.Group):
         self.add_subsystem('kinematics', kinematics.Kinematics(num_nodes=nn),
                             promotes_inputs=['V', 'gg'], promotes_outputs=['h_dot'])
         self.add_subsystem('aero', aero_module.DragPowerDissipation(num_nodes=nn),
-                            promotes_inputs=['V', 'h', 'aa'], promotes_outputs=['DV_sw', 'Vmargin'])
+                            promotes_inputs=['V', 'h', 'aa', 'Tp', 'gg'], promotes_outputs=['DV_sw', 'Vmargin', 'V_dot'])
         self.add_subsystem('solar', solar_module.SolarPower(num_nodes=nn, start_date=solar_module.start_date, lat=solar_module.lat),
                             promotes_inputs=['h', 'time'], promotes_outputs=['Psol_sw'])
         self.add_subsystem('potential', potential_module.PotentialPower(num_nodes=nn),
@@ -103,7 +106,9 @@ def main():
     climb.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     climb.add_state('Net_sw_int', rate_source='Net_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     climb.add_state('Epot_sw_int', rate_source='Epot_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
-    climb.add_control('V', lower=10, upper=30, units='m/s')
+    climb.add_state('V', rate_source='V_dot', fix_initial=False, fix_final=False, units='m/s',
+                     lower=10, upper=30, ref=10.0, defect_ref=10.0)
+    climb.add_control('Tp', lower=0.0, upper=1.0)
     climb.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
     climb.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     climb.add_boundary_constraint('gg', loc='final', equals=0.0, units='rad')  # level off before cruise
@@ -111,12 +116,14 @@ def main():
 
     # Phase2 : Cruise
     cruise.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
-    cruise.add_state('h', rate_source='h_dot', fix_initial=False, fix_final=False, units='m', ref=1e4, defect_ref=1e4)
+    cruise.add_state('h', rate_source='h_dot', fix_initial=False, fix_final=False, units='m',  lower=0.0, upper=maximum_altitude, ref=1e4, defect_ref=1e4)
     cruise.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_state('Net_sw_int', rate_source='Net_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_state('Epot_sw_int', rate_source='Epot_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
-    cruise.add_control('V', lower=10, upper=30, units='m/s')
+    cruise.add_state('V', rate_source='V_dot', fix_initial=False, fix_final=False, units='m/s',
+                      lower=10, upper=30, ref=10.0, defect_ref=10.0)
+    cruise.add_control('Tp', lower=0.0, upper=1.0)
     cruise.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     cruise.add_parameter('gg', val=0.0, opt=False, units='rad')
     cruise.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
@@ -130,17 +137,19 @@ def main():
     descent.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     descent.add_state('Net_sw_int', rate_source='Net_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     descent.add_state('Epot_sw_int', rate_source='Epot_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
-    descent.add_control('V', lower=10, upper=30, units='m/s')
+    descent.add_state('V', rate_source='V_dot', fix_initial=False, fix_final=False, units='m/s',
+                       lower=10, upper=30, ref=10.0, defect_ref=10.0)
+    descent.add_control('Tp', lower=0.0, upper=1.0)
     descent.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
     descent.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     descent.add_boundary_constraint('time', loc='final', equals=total_duration, units='s', ref=1e4)
     descent.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
     # descent.add_objective('DV_sw_int', loc='final', ref=1e1)
     # descent.add_objective('Psol_sw_int', loc='final', ref=-1e5)
-    descent.add_objective('Net_sw_int', loc='final', ref=-1e6)  # maximize Psol_sw_int - DV_sw_int
+    descent.add_objective('Net_sw_int', loc='final', ref=-1e5)  # maximize Net_sw = Psol_sw - DV_sw + Epot_sw
 
     traj.link_phases(phases=['climb', 'cruise', 'descent'],
-                      vars=['h', 'time', 'DV_sw_int', 'Psol_sw_int', 'Net_sw_int', 'Epot_sw_int', 'V', 'aa'])
+                      vars=['h', 'time', 'DV_sw_int', 'Psol_sw_int', 'Net_sw_int', 'Epot_sw_int', 'V', 'aa', 'Tp'])
 
     prob.model.linear_solver = om.DirectSolver()
 
@@ -154,7 +163,8 @@ def main():
     climb.set_state_val('Psol_sw_int', [0, climb_duration_guess * psol_sw_guess_rate])
     climb.set_state_val('Net_sw_int', [0, climb_duration_guess * net_sw_guess_rate])
     climb.set_state_val('Epot_sw_int', [0, climb_duration_guess * epot_sw_climb_guess_rate])
-    climb.set_control_val('V', [15, 25])
+    climb.set_state_val('V', [15, 25])
+    climb.set_control_val('Tp', [0.7, 0.7])
     climb.set_control_val('gg', [np.radians(4), np.radians(-4)])
     climb.set_control_val('aa', [np.radians(2), np.radians(2)])
 
@@ -169,7 +179,8 @@ def main():
     cruise.set_state_val('Net_sw_int', [net_sw_int_climb_end, net_sw_int_climb_end + cruise_duration_guess * net_sw_guess_rate])
     # Level cruise: h_dot ~ 0, so Epot_sw_int stays ~constant at the value climb ended with
     cruise.set_state_val('Epot_sw_int', [epot_sw_int_climb_end, epot_sw_int_climb_end])
-    cruise.set_control_val('V', [25, 25])
+    cruise.set_state_val('V', [25, 25])
+    cruise.set_control_val('Tp', [0.4, 0.4])
     cruise.set_control_val('aa', [np.radians(0), np.radians(0)])
 
     dv_sw_int_cruise_end = dv_sw_int_climb_end + cruise_duration_guess * dv_sw_guess_rate
@@ -182,7 +193,8 @@ def main():
     descent.set_state_val('Psol_sw_int', [psol_sw_int_cruise_end, psol_sw_int_cruise_end + descent_duration_guess * psol_sw_guess_rate])
     descent.set_state_val('Net_sw_int', [net_sw_int_cruise_end, net_sw_int_cruise_end + descent_duration_guess * net_sw_guess_rate])
     descent.set_state_val('Epot_sw_int', [epot_sw_int_cruise_end, epot_sw_int_cruise_end + descent_duration_guess * epot_sw_descent_guess_rate])
-    descent.set_control_val('V', [25, 15])
+    descent.set_state_val('V', [25, 15])
+    descent.set_control_val('Tp', [0.2, 0.2])
     descent.set_control_val('gg', [np.radians(4), np.radians(-4)])
     descent.set_control_val('aa', [np.radians(2), np.radians(2)])
 
