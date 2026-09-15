@@ -3,8 +3,18 @@ import json
 import numpy as np
 import openmdao.api as om
 import matplotlib.pyplot as plt
+from ambiance import Atmosphere
 
 from solving_longitudinal import paths_file
+
+# Diagnostic-only constants for the stall-speed-vs-altitude overlay below -
+# development's aero_module.py has no lift/weight balance (DV_sw is a drag-power
+# term only, with no CL/wing-loading requirement), so these mirror the wing
+# loading/CLmax convention mission_profile.py uses for the same comparison,
+# purely to draw this reference curve; they don't feed back into the model.
+M_Sw = 3.0  # [kg/m^2] wing loading
+g = 9.81
+CLmax = 1.2
 
 
 def stitch(varname, case):
@@ -32,28 +42,53 @@ def main():
     t_split1 = sol_case.get_val('traj.climb.timeseries.time')[-1, 0]
     t_split2 = sol_case.get_val('traj.cruise.timeseries.time')[-1, 0]
 
-    fig, axs = plt.subplots(3, 1, figsize=(6, 8), sharex=True)
+    # Figure 1: Trajectory - altitude, speed and glide angle vs elapsed time (left
+    # column, sharing the time x-axis), stall speed vs altitude alongside (right
+    # column, spanning all 3 rows - it has its own x-axis, altitude rather than time)
+    fig = plt.figure(figsize=(10, 7))
     fig.suptitle('Climb + Cruise + Descent (maximize cruise duration)')
+    gs = fig.add_gridspec(3, 2, width_ratios=[1.25, 1])
 
-    axs[0].plot(t_sol, h_sol, 'o', ms=4, label='solution')
-    axs[0].plot(t_sim, h_sim, '-', label='simulation')
-    axs[0].axvline(t_split1, color='gray', ls='--', lw=1, label='phase boundary')
-    axs[0].axvline(t_split2, color='gray', ls='--', lw=1)
-    axs[0].set_ylabel('h (m)')
-    axs[0].legend()
+    ax_alt = fig.add_subplot(gs[0, 0])
+    ax_speed = fig.add_subplot(gs[1, 0], sharex=ax_alt)
+    ax_gg = fig.add_subplot(gs[2, 0], sharex=ax_alt)
+    ax_stall = fig.add_subplot(gs[:, 1])
 
-    axs[1].plot(t_sol, V_sol, 'o', ms=4, label='solution')
-    axs[1].plot(t_sim, V_sim, '-', label='simulation')
-    axs[1].axvline(t_split1, color='gray', ls='--', lw=1)
-    axs[1].axvline(t_split2, color='gray', ls='--', lw=1)
-    axs[1].set_ylabel('V (m/s)')
+    ax_alt.plot(t_sol, h_sol, 'o', ms=4, label='solution')
+    ax_alt.plot(t_sim, h_sim, '-', label='simulation')
+    ax_alt.axvline(t_split1, color='gray', ls='--', lw=1, label='phase boundary')
+    ax_alt.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_alt.set_ylabel('h (m)')
+    ax_alt.legend()
 
-    axs[2].plot(t_sol, gg_sol, 'o', ms=4, label='solution')
-    axs[2].plot(t_sim, gg_sim, '-', label='simulation')
-    axs[2].axvline(t_split1, color='gray', ls='--', lw=1)
-    axs[2].axvline(t_split2, color='gray', ls='--', lw=1)
-    axs[2].set_xlabel('time (s)')
-    axs[2].set_ylabel('gg (rad)')
+    ax_speed.plot(t_sol, V_sol, 'o', ms=4, label='solution')
+    ax_speed.plot(t_sim, V_sim, '-', label='simulation')
+    ax_speed.axvline(t_split1, color='gray', ls='--', lw=1)
+    ax_speed.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_speed.set_ylabel('V (m/s)')
+
+    ax_gg.plot(t_sol, gg_sol, 'o', ms=4, label='solution')
+    ax_gg.plot(t_sim, gg_sim, '-', label='simulation')
+    ax_gg.axvline(t_split1, color='gray', ls='--', lw=1)
+    ax_gg.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_gg.set_xlabel('time (s)')
+    ax_gg.set_ylabel('gg (rad)')
+
+    # Stall speed vs altitude, compared to the flown airspeed
+    rho_sim = Atmosphere(h_sim).density
+    V_stall_sim = np.sqrt(2 * M_Sw * g / (rho_sim * CLmax))
+
+    ax_stall.plot(h_sim, V_stall_sim, 'k--', label='V_stall')
+    ax_stall.plot(h_sim, 1.2 * V_stall_sim, 'r--', label='1.2 x V_stall (margin threshold)')
+    ax_stall.plot(h_sol, V_sol, 'o', ms=4, color='tab:blue', label='Flown V (solution)')
+    ax_stall.plot(h_sim, V_sim, '-', color='tab:blue', label='Flown V (simulation)')
+    ax_stall.set_xlabel('Altitude h (m)')
+    ax_stall.set_ylabel('Speed (m/s)')
+    ax_stall.set_title('Stall speed vs altitude')
+    ax_stall.grid(True)
+    ax_stall.legend()
+
+    plt.tight_layout()
 
     fig2, ax2 = plt.subplots(figsize=(8, 5))
     fig2.suptitle('Energy dissipated through drag vs. solar energy stored')

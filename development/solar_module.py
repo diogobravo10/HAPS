@@ -50,7 +50,8 @@ class SolarPower(om.ExplicitComponent):
         h = inputs['h']
         t = inputs['time']
 
-        Psol_sw = utils.instantaneous_power_density(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
+        # Psol_sw = utils.instantaneous_power_density(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
+        Psol_sw = utils.instantaneous_power_density_vect(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
         outputs['Psol_sw'] = Psol_sw
 
 

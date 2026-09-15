@@ -5,6 +5,8 @@ from ambiance import Atmosphere
 # Parameters
 g = 9.81
 chord = 1 # dimensionalize by a 1meter
+M_sw = 3.0 # [kg/m^2]
+CD, CLmax = 0.0708, 1.2
 
 
 class DragPowerDissipation(om.ExplicitComponent):
@@ -21,6 +23,7 @@ class DragPowerDissipation(om.ExplicitComponent):
 
         # Outputs: Variable to be integrated
         self.add_output('DV_sw', val=np.zeros(nn), units='W/m**2')
+        self.add_output('Vmargin', val=np.zeros(nn), units='m/s')
 
         # Used to compute the derivatives of the outputs w.r.t. each of the inputs analytically or fd or cs
         arange = np.arange(self.options['num_nodes'])
@@ -31,6 +34,9 @@ class DragPowerDissipation(om.ExplicitComponent):
         self.declare_partials(of='DV_sw', wrt='V', rows=arange, cols=arange, method='fd')
         self.declare_partials(of='DV_sw', wrt='h', rows=arange, cols=arange, method='fd')
         self.declare_partials(of='DV_sw', wrt='aa', rows=arange, cols=arange, method='fd')
+        # Vstall depends on h only (wing loading/CLmax are fixed); Vmargin = V - Vstall.
+        self.declare_partials(of='Vmargin', wrt='V', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='Vmargin', wrt='h', rows=arange, cols=arange, method='fd')
 
 
     def compute(self, inputs, outputs):
@@ -38,8 +44,6 @@ class DragPowerDissipation(om.ExplicitComponent):
         V = inputs['V']
         h = inputs['h']
         aa = inputs['aa']
-
-        CD, CLmax = 0.0708, 1.2
 
         # CL and CD are fitted to a set of equations of the Reynolds number Re and the attack angle aa, 
         # where the Reynolds number is calculated according to current altitude and flight velocity
@@ -58,6 +62,10 @@ class DragPowerDissipation(om.ExplicitComponent):
         # L_sw = 1/2 * rho * V**2 * CL
         DV_sw =  1/2 * rho * V**3 * CD
 
-        outputs['DV_sw'] = DV_sw
+        # Stall speed
+        Vstall = np.sqrt(2 * M_sw * g / rho / CLmax)
+
+        outputs['DV_sw'] = DV_sw  # still debugging
+        outputs['Vmargin'] = V - Vstall
 
 
