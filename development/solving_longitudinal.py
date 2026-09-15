@@ -58,7 +58,7 @@ def main():
     traj = prob.model.add_subsystem('traj', dm.Trajectory())
 
     climb = traj.add_phase('climb', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=10, order=3)))
-    cruise = traj.add_phase('cruise', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=20, order=3)))
+    cruise = traj.add_phase('cruise', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=10, order=3)))
     descent = traj.add_phase('descent', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=10, order=3)))
 
     # Phase1 : Climb
@@ -89,7 +89,7 @@ def main():
     descent.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
     descent.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     descent.add_boundary_constraint('time', loc='final', equals=total_duration, units='s', ref=1e4)
-    descent.add_objective('DV_sw_int', loc='final', ref=-1e6)
+    descent.add_objective('DV_sw_int', loc='final', ref=1e1)
 
     traj.link_phases(phases=['climb', 'cruise', 'descent'], vars=['h', 'time', 'DV_sw_int', 'V', 'aa'])
 
@@ -103,7 +103,7 @@ def main():
     climb.set_state_val('h', [0, cruise_altitude])
     climb.set_state_val('DV_sw_int', [0, climb_duration_guess * dv_sw_guess_rate])
     climb.set_control_val('V', [10, 12])
-    climb.set_control_val('gg', [np.radians(5), np.radians(5)])
+    climb.set_control_val('gg', [np.radians(4), np.radians(4)])
     climb.set_control_val('aa', [np.radians(2), np.radians(2)])
 
     dv_sw_int_climb_end = climb_duration_guess * dv_sw_guess_rate
@@ -118,7 +118,7 @@ def main():
     descent.set_state_val('h', [cruise_altitude, 0])
     descent.set_state_val('DV_sw_int', [dv_sw_int_cruise_end, dv_sw_int_cruise_end + descent_duration_guess * dv_sw_guess_rate])
     descent.set_control_val('V', [10, 8])
-    descent.set_control_val('gg', [np.radians(-5), np.radians(-5)])
+    descent.set_control_val('gg', [np.radians(-4), np.radians(-4)])
     descent.set_control_val('aa', [np.radians(2), np.radians(2)])
 
     start_time = time.perf_counter()
