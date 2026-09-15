@@ -5,6 +5,7 @@ import dymos as dm
 import longitudinal_kinematics as kinematics
 import aero_module
 import solar_module
+import potential_module
 import time
 import plot_longitudinal
 
@@ -24,6 +25,12 @@ psol_sw_guess_rate = 1350
 # Rough estimate of Net_sw = Psol_sw - DV_sw, used only to seed Net_sw_int's guess
 net_sw_guess_rate = psol_sw_guess_rate - dv_sw_guess_rate
 
+# Rough estimate of Epot_sw = M_sw*g*h_dot, from the average h_dot implied by the
+# altitude/duration guesses above - ~0 in cruise (level flight), and opposite sign in
+# climb vs. descent (unlike DV_sw/Psol_sw, which are roughly constant throughout)
+epot_sw_climb_guess_rate = potential_module.M_sw * potential_module.g * cruise_altitude / climb_duration_guess
+epot_sw_descent_guess_rate = -potential_module.M_sw * potential_module.g * cruise_altitude / descent_duration_guess
+
 paths_file = 'solving_longitudinal_paths.json'
 
 
@@ -37,7 +44,9 @@ class LongitudinalODE(om.Group):
     promoted so solar can use it. Exposes 'h_dot' (for the h state), 'DV_sw' (for the
     DV_sw_int integral state), 'Psol_sw' (for the Psol_sw_int integral state), 'Net_sw'
     (Psol_sw - DV_sw, for the Net_sw_int integral state - net energy collected minus
-    dissipated), and 'Vstall'/'Vmargin' (diagnostic outputs, not integrated into any state).
+    dissipated), 'Epot_sw' (for the Epot_sw_int integral state - potential energy gained/
+    lost while climbing/descending, tracked separately from Net_sw for now), and
+    'Vstall'/'Vmargin' (diagnostic outputs, not integrated into any state).
     """
     def initialize(self):
         self.options.declare('num_nodes', types=int)
@@ -51,14 +60,17 @@ class LongitudinalODE(om.Group):
                             promotes_inputs=['V', 'h', 'aa'], promotes_outputs=['DV_sw', 'Vmargin'])
         self.add_subsystem('solar', solar_module.SolarPower(num_nodes=nn, start_date=solar_module.start_date, lat=solar_module.lat),
                             promotes_inputs=['h', 'time'], promotes_outputs=['Psol_sw'])
+        self.add_subsystem('potential', potential_module.PotentialPower(num_nodes=nn),
+                            promotes_inputs=['h_dot'], promotes_outputs=['Epot_sw'])
         # Dymos objectives take a single named variable, not an expression, so the
         # difference is computed here as its own ODE output and integrated as its own
         # state (Net_sw_int) below - same pattern as DV_sw_int/Psol_sw_int.
-        self.add_subsystem('net', om.ExecComp('Net_sw = Psol_sw - DV_sw',
+        self.add_subsystem('net', om.ExecComp('Net_sw = Psol_sw - DV_sw + Epot_sw',
                                                Net_sw={'units': 'W/m**2', 'shape': (nn,)},
                                                Psol_sw={'units': 'W/m**2', 'shape': (nn,)},
-                                               DV_sw={'units': 'W/m**2', 'shape': (nn,)}),
-                            promotes=['Net_sw', 'Psol_sw', 'DV_sw'])
+                                               DV_sw={'units': 'W/m**2', 'shape': (nn,)},
+                                               Epot_sw={'units': 'W/m**2', 'shape': (nn,)}),
+                            promotes=['Net_sw', 'Psol_sw', 'DV_sw', 'Epot_sw'])
 
 
 def main():
@@ -90,6 +102,7 @@ def main():
     climb.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     climb.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     climb.add_state('Net_sw_int', rate_source='Net_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
+    climb.add_state('Epot_sw_int', rate_source='Epot_sw', fix_initial=True, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     climb.add_control('V', lower=10, upper=30, units='m/s')
     climb.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
     climb.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
@@ -102,6 +115,7 @@ def main():
     cruise.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_state('Net_sw_int', rate_source='Net_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
+    cruise.add_state('Epot_sw_int', rate_source='Epot_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_control('V', lower=10, upper=30, units='m/s')
     cruise.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     cruise.add_parameter('gg', val=0.0, opt=False, units='rad')
@@ -115,6 +129,7 @@ def main():
     descent.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     descent.add_state('Psol_sw_int', rate_source='Psol_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     descent.add_state('Net_sw_int', rate_source='Net_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
+    descent.add_state('Epot_sw_int', rate_source='Epot_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     descent.add_control('V', lower=10, upper=30, units='m/s')
     descent.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
     descent.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
@@ -124,7 +139,8 @@ def main():
     # descent.add_objective('Psol_sw_int', loc='final', ref=-1e5)
     descent.add_objective('Net_sw_int', loc='final', ref=-1e6)  # maximize Psol_sw_int - DV_sw_int
 
-    traj.link_phases(phases=['climb', 'cruise', 'descent'], vars=['h', 'time', 'DV_sw_int', 'Psol_sw_int', 'Net_sw_int', 'V', 'aa'])
+    traj.link_phases(phases=['climb', 'cruise', 'descent'],
+                      vars=['h', 'time', 'DV_sw_int', 'Psol_sw_int', 'Net_sw_int', 'Epot_sw_int', 'V', 'aa'])
 
     prob.model.linear_solver = om.DirectSolver()
 
@@ -137,6 +153,7 @@ def main():
     climb.set_state_val('DV_sw_int', [0, climb_duration_guess * dv_sw_guess_rate])
     climb.set_state_val('Psol_sw_int', [0, climb_duration_guess * psol_sw_guess_rate])
     climb.set_state_val('Net_sw_int', [0, climb_duration_guess * net_sw_guess_rate])
+    climb.set_state_val('Epot_sw_int', [0, climb_duration_guess * epot_sw_climb_guess_rate])
     climb.set_control_val('V', [15, 25])
     climb.set_control_val('gg', [np.radians(4), np.radians(-4)])
     climb.set_control_val('aa', [np.radians(2), np.radians(2)])
@@ -144,22 +161,27 @@ def main():
     dv_sw_int_climb_end = climb_duration_guess * dv_sw_guess_rate
     psol_sw_int_climb_end = climb_duration_guess * psol_sw_guess_rate
     net_sw_int_climb_end = climb_duration_guess * net_sw_guess_rate
+    epot_sw_int_climb_end = climb_duration_guess * epot_sw_climb_guess_rate
     cruise.set_time_val(initial=climb_duration_guess, duration=cruise_duration_guess)
     cruise.set_state_val('h', [cruise_altitude, cruise_altitude])
     cruise.set_state_val('DV_sw_int', [dv_sw_int_climb_end, dv_sw_int_climb_end + cruise_duration_guess * dv_sw_guess_rate])
     cruise.set_state_val('Psol_sw_int', [psol_sw_int_climb_end, psol_sw_int_climb_end + cruise_duration_guess * psol_sw_guess_rate])
     cruise.set_state_val('Net_sw_int', [net_sw_int_climb_end, net_sw_int_climb_end + cruise_duration_guess * net_sw_guess_rate])
+    # Level cruise: h_dot ~ 0, so Epot_sw_int stays ~constant at the value climb ended with
+    cruise.set_state_val('Epot_sw_int', [epot_sw_int_climb_end, epot_sw_int_climb_end])
     cruise.set_control_val('V', [25, 25])
     cruise.set_control_val('aa', [np.radians(0), np.radians(0)])
 
     dv_sw_int_cruise_end = dv_sw_int_climb_end + cruise_duration_guess * dv_sw_guess_rate
     psol_sw_int_cruise_end = psol_sw_int_climb_end + cruise_duration_guess * psol_sw_guess_rate
     net_sw_int_cruise_end = net_sw_int_climb_end + cruise_duration_guess * net_sw_guess_rate
+    epot_sw_int_cruise_end = epot_sw_int_climb_end
     descent.set_time_val(initial=climb_duration_guess + cruise_duration_guess, duration=descent_duration_guess)
     descent.set_state_val('h', [cruise_altitude, 0])
     descent.set_state_val('DV_sw_int', [dv_sw_int_cruise_end, dv_sw_int_cruise_end + descent_duration_guess * dv_sw_guess_rate])
     descent.set_state_val('Psol_sw_int', [psol_sw_int_cruise_end, psol_sw_int_cruise_end + descent_duration_guess * psol_sw_guess_rate])
     descent.set_state_val('Net_sw_int', [net_sw_int_cruise_end, net_sw_int_cruise_end + descent_duration_guess * net_sw_guess_rate])
+    descent.set_state_val('Epot_sw_int', [epot_sw_int_cruise_end, epot_sw_int_cruise_end + descent_duration_guess * epot_sw_descent_guess_rate])
     descent.set_control_val('V', [25, 15])
     descent.set_control_val('gg', [np.radians(4), np.radians(-4)])
     descent.set_control_val('aa', [np.radians(2), np.radians(2)])
@@ -185,6 +207,8 @@ def main():
     print('Integral of DV_sw over mission (J/m^2):', prob.get_val('traj.descent.timeseries.DV_sw_int')[-1, 0])
     print('Integral of Psol_sw over mission (J/m^2):', prob.get_val('traj.descent.timeseries.Psol_sw_int')[-1, 0])
     print('Integral of Net_sw (Psol_sw - DV_sw) over mission (J/m^2):', prob.get_val('traj.descent.timeseries.Net_sw_int')[-1, 0])
+    # Should end up ~0 since h starts and ends at 0 - climb's gain and descent's loss should cancel
+    print('Integral of Epot_sw (potential energy) over mission (J/m^2):', prob.get_val('traj.descent.timeseries.Epot_sw_int')[-1, 0])
 
     # Records
     solution_path = str(prob.get_outputs_dir() / solution_record_file)

@@ -39,6 +39,10 @@ def main():
     DV_sw_int_sim = stitch('DV_sw_int', sim_case) / J_PER_KWH
     Psol_sw_int_sol = stitch('Psol_sw_int', sol_case) / J_PER_KWH
     Psol_sw_int_sim = stitch('Psol_sw_int', sim_case) / J_PER_KWH
+    Epot_sw_int_sol = stitch('Epot_sw_int', sol_case) / J_PER_KWH
+    Epot_sw_int_sim = stitch('Epot_sw_int', sim_case) / J_PER_KWH
+    Net_sw_int_sol = stitch('Net_sw_int', sol_case) / J_PER_KWH
+    Net_sw_int_sim = stitch('Net_sw_int', sim_case) / J_PER_KWH
     t_split1 = sol_case.get_val('traj.climb.timeseries.time')[-1, 0]
     t_split2 = sol_case.get_val('traj.cruise.timeseries.time')[-1, 0]
 
@@ -91,11 +95,15 @@ def main():
     plt.tight_layout()
 
     fig2, ax2 = plt.subplots(figsize=(8, 5))
-    fig2.suptitle('Energy dissipated through drag vs. solar energy stored')
+    fig2.suptitle('Drag dissipation vs. solar energy stored vs. potential energy vs. net')
     ax2.plot(t_sol, DV_sw_int_sol, 'o', ms=4, color='tab:red', label='Drag dissipated (solution)')
     ax2.plot(t_sim, DV_sw_int_sim, '-', color='tab:red', label='Drag dissipated (simulation)')
     ax2.plot(t_sol, Psol_sw_int_sol, 'o', ms=4, color='tab:orange', label='Solar energy stored (solution)')
     ax2.plot(t_sim, Psol_sw_int_sim, '-', color='tab:orange', label='Solar energy stored (simulation)')
+    ax2.plot(t_sol, Epot_sw_int_sol, 'o', ms=4, color='tab:green', label='Potential energy (solution)')
+    ax2.plot(t_sim, Epot_sw_int_sim, '-', color='tab:green', label='Potential energy (simulation)')
+    ax2.plot(t_sol, Net_sw_int_sol, 'o', ms=4, color='tab:blue', label='Net energy (solution)')
+    ax2.plot(t_sim, Net_sw_int_sim, '-', color='tab:blue', label='Net energy (simulation)')
     ax2.axvline(t_split1, color='gray', ls='--', lw=1, label='phase boundary')
     ax2.axvline(t_split2, color='gray', ls='--', lw=1)
     ax2.set_xlabel('time (s)')
