@@ -7,7 +7,8 @@ g = 9.81
 chord = 1 # dimensionalize by a 1meter
 M_sw = 3.0 # [kg/m^2]
 CD, CLmax = 0.0708, 1.2
-T_installed = 100 # N/m^2
+Tinst_sw = 10 # N/m^2
+mu_prop = 0.7
 
 class DragPowerDissipation(om.ExplicitComponent):
     def initialize(self):
@@ -25,7 +26,9 @@ class DragPowerDissipation(om.ExplicitComponent):
 
         # Outputs: Variable to be integrated
         self.add_output('V_dot', val=np.zeros(nn), units='m/s**2')
+        # self.add_output('gg_dot', val=np.zeros(nn), units='rad/s')
         self.add_output('DV_sw', val=np.zeros(nn), units='W/m**2')
+        self.add_output('TV_sw', val=np.zeros(nn), units='W/m**2')
         self.add_output('Vmargin', val=np.zeros(nn), units='m/s')
 
         # Used to compute the derivatives of the outputs w.r.t. each of the inputs analytically or fd or cs
@@ -37,6 +40,10 @@ class DragPowerDissipation(om.ExplicitComponent):
         self.declare_partials(of='DV_sw', wrt='V', rows=arange, cols=arange, method='fd')
         self.declare_partials(of='DV_sw', wrt='h', rows=arange, cols=arange, method='fd')
         self.declare_partials(of='DV_sw', wrt='aa', rows=arange, cols=arange, method='fd')
+
+        self.declare_partials(of='TV_sw', wrt='Tp', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='TV_sw', wrt='V', rows=arange, cols=arange, method='fd')
+
         # Vstall depends on h only (wing loading/CLmax are fixed); Vmargin = V - Vstall.
         self.declare_partials(of='Vmargin', wrt='V', rows=arange, cols=arange, method='fd')
         self.declare_partials(of='Vmargin', wrt='h', rows=arange, cols=arange, method='fd')
@@ -52,15 +59,16 @@ class DragPowerDissipation(om.ExplicitComponent):
         # Used to compute the outputs, given the inputs.
         V = inputs['V']
         h = inputs['h']
-        aa = inputs['aa']
+        aa = np.degrees(inputs['aa'])
         Tp = inputs['Tp']
         gg = inputs['gg']
 
         sin_gg = np.sin(gg)
         # CL and CD are fitted to a set of equations of the Reynolds number Re and the attack angle aa, 
         # where the Reynolds number is calculated according to current altitude and flight velocity
-        rho = Atmosphere(h).density
-        kviscosity = Atmosphere(h).kinematic_viscosity
+        atm = Atmosphere(h)
+        rho = atm.density
+        kviscosity = atm.kinematic_viscosity
 
         Re = V * chord / kviscosity
 
@@ -78,7 +86,9 @@ class DragPowerDissipation(om.ExplicitComponent):
         Vstall = np.sqrt(2 * M_sw * g / rho / CLmax)
 
         outputs['DV_sw'] = D_sw * V 
-        outputs['Vmargin'] = V - Vstall
-        outputs['V_dot'] = (Tp*T_installed - D_sw) / M_sw - g*sin_gg
+        outputs['TV_sw'] = Tp * Tinst_sw * V /mu_prop
+        outputs['Vmargin'] = V - 1.2*Vstall
+        outputs['V_dot'] = (Tp*Tinst_sw - D_sw) / M_sw - g*sin_gg
+        # outputs['gg_dot'] = L_sw / (V* M_sw) * cos_phi - g*cos_gg/V
 
 
