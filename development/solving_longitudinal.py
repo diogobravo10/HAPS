@@ -8,7 +8,6 @@ import solar_module
 import potential_module
 import battery_module
 import time
-import plot_longitudinal
 
 low_altitude = 10000.0  # m 
 initial_altitude = 12000.0  # m 
@@ -273,5 +272,10 @@ def main():
 
 
 if __name__ == '__main__':
+    # Imported here rather than at module level: plot_longitudinal imports paths_file
+    # back from this module, and importing it up top (before paths_file is defined
+    # below) breaks any plain `import solving_longitudinal` from another script (e.g.
+    # solving_cascade_V3.py) with a circular-import ImportError.
+    import plot_longitudinal
     main()
     plot_longitudinal.main()

@@ -49,3 +49,38 @@ class VelocityProfileComp(om.ExplicitComponent):
         dV = self._dspline(time)
         # Where the floor is active, V is constant w.r.t. time -> zero slope.
         partials['V', 'time'] = np.where(V > self.options['V_min'], dV, 0.0)
+
+
+class AltitudeProfileComp(om.ExplicitComponent):
+    """Evaluates a precomputed h(t) profile (e.g. from a solved longitudinal
+    trajectory) at whatever time value the calling phase currently needs, via a
+    shape-preserving spline - same approach as VelocityProfileComp, but for altitude.
+    Nothing downstream divides by h, so unlike V this needs no floor."""
+
+    def initialize(self):
+        self.options.declare('num_nodes', types=int)
+        self.options.declare('t_data', desc='1D array of time samples')
+        self.options.declare('h_data', desc='1D array of h samples at t_data')
+
+    def setup(self):
+        nn = self.options['num_nodes']
+        self.add_input('time', val=np.zeros(nn), units='s')
+        self.add_output('h', val=np.zeros(nn), units='m')
+
+        # Same duplicate-time-at-phase-boundary handling as VelocityProfileComp.
+        t_data = np.asarray(self.options['t_data'])
+        h_data = np.asarray(self.options['h_data'])
+        keep = np.concatenate([[True], np.diff(t_data) > 0])
+        t_data, h_data = t_data[keep], h_data[keep]
+
+        self._spline = PchipInterpolator(t_data, h_data)
+        self._dspline = self._spline.derivative()
+
+        arange = np.arange(nn)
+        self.declare_partials(of='h', wrt='time', rows=arange, cols=arange)
+
+    def compute(self, inputs, outputs):
+        outputs['h'] = self._spline(inputs['time'])
+
+    def compute_partials(self, inputs, partials):
+        partials['h', 'time'] = self._dspline(inputs['time'])
