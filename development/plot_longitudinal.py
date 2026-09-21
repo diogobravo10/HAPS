@@ -1,4 +1,5 @@
 import json
+import os
 
 import numpy as np
 import openmdao.api as om
@@ -15,6 +16,12 @@ from solving_longitudinal import paths_file
 M_Sw = 3.0  # [kg/m^2] wing loading
 g = 9.81
 CLmax = 1.2
+
+# Anchored to this file's own location (not the current working directory), same
+# convention as plot_cascade.py's plots_out_dir.
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+plots_out_dir = os.path.join(_this_dir, '..', 'nice_plots_3d_trajectory',
+                              'Trajectory Optimization', 'Cylinder', 'UP2DATE')
 
 
 def stitch(varname, case):
@@ -35,6 +42,10 @@ def main():
     t_sol, h_sol, V_sol, gg_sol = stitch('time', sol_case), stitch('h', sol_case), stitch('V', sol_case), stitch('gg', sol_case)
     t_sim, h_sim, V_sim, gg_sim = stitch('time', sim_case), stitch('h', sim_case), stitch('V', sim_case), stitch('gg', sim_case)
     Tp_sol, Tp_sim = stitch('Tp', sol_case), stitch('Tp', sim_case)
+    aa_sol, aa_sim = stitch('aa', sol_case), stitch('aa', sim_case)
+    Vdot_sol, Vdot_sim = stitch('V_dot', sol_case), stitch('V_dot', sim_case)
+    gg_sol, gg_sim = np.degrees(gg_sol), np.degrees(gg_sim)
+    aa_sol, aa_sim = np.degrees(aa_sol), np.degrees(aa_sim)
     J_PER_KWH = 3.6e6
     DV_sw_int_sol = stitch('DV_sw_int', sol_case) / J_PER_KWH
     DV_sw_int_sim = stitch('DV_sw_int', sim_case) / J_PER_KWH
@@ -50,17 +61,15 @@ def main():
     t_split1 = sol_case.get_val('traj.climb.timeseries.time')[-1, 0]
     t_split2 = sol_case.get_val('traj.cruise.timeseries.time')[-1, 0]
 
-    # Figure 1: Trajectory - altitude, speed and glide angle vs elapsed time (left
-    # column, sharing the time x-axis), stall speed vs altitude alongside (right
-    # column, spanning all 3 rows - it has its own x-axis, altitude rather than time)
-    fig = plt.figure(figsize=(10, 7))
+    # Figure 1: Trajectory - altitude and speed vs elapsed time (left column,
+    # sharing the time x-axis), stall speed vs altitude alongside (right
+    # column, spanning both rows - it has its own x-axis, altitude rather than time)
+    fig = plt.figure(figsize=(10, 5))
     fig.suptitle('Climb + Cruise + Descent (maximize cruise duration)')
-    gs = fig.add_gridspec(4, 2, width_ratios=[1.25, 1])
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.25, 1])
 
     ax_alt = fig.add_subplot(gs[0, 0])
     ax_speed = fig.add_subplot(gs[1, 0], sharex=ax_alt)
-    ax_Tp = fig.add_subplot(gs[2, 0], sharex=ax_alt)
-    ax_gg = fig.add_subplot(gs[3, 0], sharex=ax_alt)
     ax_stall = fig.add_subplot(gs[:, 1])
 
     ax_alt.plot(t_sol, h_sol, 'o', ms=4, label='solution')
@@ -74,20 +83,8 @@ def main():
     ax_speed.plot(t_sim, V_sim, '-', label='simulation')
     ax_speed.axvline(t_split1, color='gray', ls='--', lw=1)
     ax_speed.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_speed.set_xlabel('time (s)')
     ax_speed.set_ylabel('V (m/s)')
-
-    ax_Tp.plot(t_sol, Tp_sol, 'o', ms=4, label='solution')
-    ax_Tp.plot(t_sim, Tp_sim, '-', label='simulation')
-    ax_Tp.axvline(t_split1, color='gray', ls='--', lw=1)
-    ax_Tp.axvline(t_split2, color='gray', ls='--', lw=1)
-    ax_Tp.set_ylabel('Tp')
-
-    ax_gg.plot(t_sol, gg_sol, 'o', ms=4, label='solution')
-    ax_gg.plot(t_sim, gg_sim, '-', label='simulation')
-    ax_gg.axvline(t_split1, color='gray', ls='--', lw=1)
-    ax_gg.axvline(t_split2, color='gray', ls='--', lw=1)
-    ax_gg.set_xlabel('time (s)')
-    ax_gg.set_ylabel('gg (rad)')
 
     # Stall speed vs altitude, compared to the flown airspeed
     rho_sim = Atmosphere(h_sim).density
@@ -132,6 +129,44 @@ def main():
     ax_soc.legend()
 
     plt.tight_layout()
+
+    # Figure 3: Acceleration and its driving controls vs elapsed time
+    fig3, (ax_Vdot, ax_gg, ax_aa, ax_Tp) = plt.subplots(4, 1, figsize=(8, 6), sharex=True)
+    fig3.suptitle('V_dot, glide angle, angle of attack and Tp vs. time')
+
+    ax_Vdot.plot(t_sol, Vdot_sol, 'o', ms=4, label='solution')
+    ax_Vdot.plot(t_sim, Vdot_sim, '-', label='simulation')
+    ax_Vdot.axvline(t_split1, color='gray', ls='--', lw=1, label='phase boundary')
+    ax_Vdot.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_Vdot.set_ylim(-0.002, 0.002)
+    ax_Vdot.set_ylabel('V_dot (m/s^2)')
+    ax_Vdot.legend()
+
+    ax_gg.plot(t_sol, gg_sol, 'o', ms=4, label='solution')
+    ax_gg.plot(t_sim, gg_sim, '-', label='simulation')
+    ax_gg.axvline(t_split1, color='gray', ls='--', lw=1)
+    ax_gg.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_gg.set_ylabel('gg (deg)')
+
+    ax_aa.plot(t_sol, aa_sol, 'o', ms=4, label='solution')
+    ax_aa.plot(t_sim, aa_sim, '-', label='simulation')
+    ax_aa.axvline(t_split1, color='gray', ls='--', lw=1)
+    ax_aa.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_aa.set_ylabel('aa (deg)')
+
+    ax_Tp.plot(t_sol, Tp_sol, 'o', ms=4, label='solution')
+    ax_Tp.plot(t_sim, Tp_sim, '-', label='simulation')
+    ax_Tp.axvline(t_split1, color='gray', ls='--', lw=1)
+    ax_Tp.axvline(t_split2, color='gray', ls='--', lw=1)
+    ax_Tp.set_xlabel('time (s)')
+    ax_Tp.set_ylabel('Tp')
+
+    plt.tight_layout()
+
+    os.makedirs(plots_out_dir, exist_ok=True)
+    fig.savefig(os.path.join(plots_out_dir, 'longitudinal_trajectory.png'), dpi=150, bbox_inches='tight')
+    fig2.savefig(os.path.join(plots_out_dir, 'energy_balance.png'), dpi=150, bbox_inches='tight')
+    fig3.savefig(os.path.join(plots_out_dir, 'Vdot_gg_aa_Tp.png'), dpi=150, bbox_inches='tight')
 
     plt.show()
 

@@ -9,7 +9,7 @@ import potential_module
 import battery_module
 import time
 
-low_altitude = 10000.0  # m 
+low_altitude = 10000.0  # m -> Lower altitudes -> Lower stall speed -> Decrease in Speed -> Decrease in energy consumption (V***3)
 initial_altitude = 12000.0  # m 
 cruise_altitude = 17000.0  # m
 maximum_altitude = 24000.0 # m
@@ -137,6 +137,7 @@ def main():
     climb.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     climb.add_boundary_constraint('gg', loc='final', equals=0.0, units='rad')  # level off before cruise
     climb.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
+    climb.add_timeseries_output('V_dot')
 
     # Phase2 : Cruise
     cruise.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
@@ -154,6 +155,7 @@ def main():
     cruise.add_parameter('gg', val=0.0, opt=False, units='rad')
     cruise.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
     cruise.add_timeseries_output('gg')
+    cruise.add_timeseries_output('V_dot')
 
     # Phase3 : Descent
     descent.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
@@ -172,6 +174,7 @@ def main():
     descent.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     descent.add_boundary_constraint('time', loc='final', equals=total_duration, units='s', ref=1e4)
     descent.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
+    descent.add_timeseries_output('V_dot')
     # descent.add_objective('DV_sw_int', loc='final', ref=1e1)
     # descent.add_objective('Psol_sw_int', loc='final', ref=-1e5)
     descent.add_objective('Net_sw_int', loc='final', ref=-5e6)  # maximize Net_sw = Psol_sw - DV_sw + Epot_sw
@@ -241,6 +244,7 @@ def main():
     # Solve for the optimal trajectory
     solution_record_file = 'solution.db'
     dm.run_problem(prob, solution_record_file=solution_record_file)
+    # dm.run_problem(prob, refine_method='hp', refine_iteration_limit=1, solution_record_file=solution_record_file)
 
     elapsed = time.perf_counter() - start_time
     print(f"Elapsed time: {elapsed:.2f} seconds")
