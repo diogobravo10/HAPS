@@ -59,6 +59,11 @@ class DragPowerDissipation(om.ExplicitComponent):
         self.declare_partials(of='V_dot', wrt='aa', rows=arange, cols=arange)
         self.declare_partials(of='V_dot', wrt='gg', rows=arange, cols=arange)
 
+        # self.declare_partials(of='gg_dot', wrt='V', rows=arange, cols=arange)
+        # self.declare_partials(of='gg_dot', wrt='h', rows=arange, cols=arange, method='fd')
+        # self.declare_partials(of='gg_dot', wrt='aa', rows=arange, cols=arange)
+        # self.declare_partials(of='gg_dot', wrt='gg', rows=arange, cols=arange)
+
 
     def compute(self, inputs, outputs):
         # Used to compute the outputs, given the inputs.
@@ -69,6 +74,9 @@ class DragPowerDissipation(om.ExplicitComponent):
         gg = inputs['gg']
 
         sin_gg = np.sin(gg)
+        # cos_gg = np.cos(gg)
+        # cos_phi = 1
+
         # CL and CD are fitted to a set of equations of the Reynolds number Re and the attack angle aa, 
         # where the Reynolds number is calculated according to current altitude and flight velocity
         atm = Atmosphere(h)
@@ -106,6 +114,8 @@ class DragPowerDissipation(om.ExplicitComponent):
         gg = inputs['gg']
 
         cos_gg = np.cos(gg)
+        sin_gg = np.sin(gg)
+        cos_phi = 1
 
         atm = Atmosphere(h)
         rho = atm.density
@@ -126,3 +136,7 @@ class DragPowerDissipation(om.ExplicitComponent):
         partials['V_dot', 'gg'] = -g* cos_gg        
         partials['V_dot', 'V'] = -rho * V / (2*M_sw) * (2*(b1 + b4*aa + b7*aa**2) + 3*(b2 + b5*aa + b8*aa**2)*Re + 4*(b3 + b6*aa + b9*aa**2)*Re**2)
         partials['V_dot', 'aa'] = -rho * V**2 / (2*M_sw) * (b4 + b5*Re + b6*Re**2 + 2*b7*aa + 2*b8*aa*Re + 2*b9*aa*Re**2) * (180/np.pi)
+
+        # partials['gg_dot', 'gg'] = g* sin_gg / V       
+        # partials['gg_dot', 'aa'] = rho * V * cos_phi/ (2*M_sw) * (a2 + 2*a4*aa + a6*Re) * (180/np.pi)
+        # partials['gg_dot', 'V'] = g*cos_gg/V**2 + rho* cos_phi / (2*M_sw) * (a1 + a2*aa + 2*a3*Re + a4*aa**2 + 3*a5*Re**2 + 2*a6*aa*Re)
