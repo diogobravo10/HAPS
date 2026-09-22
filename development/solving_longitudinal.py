@@ -56,17 +56,18 @@ class LongitudinalODE(om.Group):
 
     'V' (state) is promoted from kinematics/aero so they share the same airspeed; 'h'
     (state) is promoted from aero/solar so they share the same altitude; 'gg' (flight-
-    path angle control) is promoted from kinematics/aero so they share it too - aero
-    needs it for V_dot's gravity component, same units ('rad') on both. 'aa' (angle of
-    attack control) and 'Tp' (throttle control) feed aero only. 'time' is Dymos's
-    auto-supplied absolute phase time, promoted so solar can use it. Exposes 'h_dot'
-    (for the h state), 'V_dot' (for the V state), 'DV_sw' (for the DV_sw_int integral
-    state), 'Psol_sw' (for the Psol_sw_int integral state), 'Net_sw' (Psol_sw - DV_sw,
-    for the Net_sw_int integral state - net energy collected minus dissipated),
-    'Epot_sw' (for the Epot_sw_int integral state - potential energy gained/lost while
-    climbing/descending, tracked separately from Net_sw for now), 'SOC_dot' (for the SOC
-    state - battery state of charge, driven by the same Net_sw), and 'Vstall'/'Vmargin'
-    (diagnostic outputs, not integrated into any state).
+    path angle, state in climb/descent) is promoted from kinematics/aero so they share
+    it too - aero needs it for V_dot's gravity component, same units ('rad') on both.
+    'aa' (angle of attack control) and 'Tp' (throttle control) feed aero only. 'time' is
+    Dymos's auto-supplied absolute phase time, promoted so solar can use it. Exposes 'h_dot'
+    (for the h state), 'V_dot' (for the V state), 'gg_dot' (for the gg state in
+    climb/descent - cruise keeps 'gg' as a fixed parameter instead), 'DV_sw' (for the
+    DV_sw_int integral state), 'Psol_sw' (for the Psol_sw_int integral state), 'Net_sw'
+    (Psol_sw - DV_sw, for the Net_sw_int integral state - net energy collected minus
+    dissipated), 'Epot_sw' (for the Epot_sw_int integral state - potential energy
+    gained/lost while climbing/descending, tracked separately from Net_sw for now),
+    'SOC_dot' (for the SOC state - battery state of charge, driven by the same Net_sw),
+    and 'Vstall'/'Vmargin' (diagnostic outputs, not integrated into any state).
     """
     def initialize(self):
         self.options.declare('num_nodes', types=int)
@@ -77,7 +78,7 @@ class LongitudinalODE(om.Group):
         self.add_subsystem('kinematics', kinematics.Kinematics(num_nodes=nn),
                             promotes_inputs=['V', 'gg'], promotes_outputs=['h_dot'])
         self.add_subsystem('aero', aero_module.DragPowerDissipation(num_nodes=nn),
-                            promotes_inputs=['V', 'h', 'aa', 'Tp', 'gg'], promotes_outputs=['DV_sw', 'TV_sw' ,'Vmargin', 'V_dot'])
+                            promotes_inputs=['V', 'h', 'aa', 'Tp', 'gg'], promotes_outputs=['DV_sw', 'TV_sw' ,'Vmargin', 'V_dot', 'gg_dot'])
         self.add_subsystem('solar', solar_module.SolarPower(num_nodes=nn, start_date=solar_module.start_date, lat=solar_module.lat),
                             promotes_inputs=['h', 'time'], promotes_outputs=['Psol_sw'])
         self.add_subsystem('potential', potential_module.PotentialPower(num_nodes=nn),
@@ -93,7 +94,7 @@ class LongitudinalODE(om.Group):
                                                Epot_sw={'units': 'W/m**2', 'shape': (nn,)}),
                             promotes=['Net_sw', 'Psol_sw', 'DV_sw', 'TV_sw', 'Epot_sw'])
         self.add_subsystem('battery', battery_module.StateOfCharge(num_nodes=nn),
-                            promotes_inputs=[('net_sw', 'Net_sw')], promotes_outputs=['SOC_dot'])
+                            promotes_inputs=['SOC', 'Net_sw'], promotes_outputs=['SOC_dot'])
 
 
 def main():
@@ -133,11 +134,13 @@ def main():
     climb.add_state('V', rate_source='V_dot', fix_initial=False, fix_final=False, units='m/s',
                      lower=10, upper=30, ref=10.0, defect_ref=10.0)
     climb.add_control('Tp', lower=0.0, upper=1.0)
-    climb.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
+    climb.add_state('gg', rate_source='gg_dot', fix_initial=False, fix_final=False, units='rad',
+                     lower=np.radians(-5), upper=np.radians(5), ref=0.1, defect_ref=0.1)
     climb.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     climb.add_boundary_constraint('gg', loc='final', equals=0.0, units='rad')  # level off before cruise
     climb.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
-    climb.add_timeseries_output('V_dot')
+    climb.add_timeseries_output('V_dot')  # commented out for debugging
+    climb.add_timeseries_output('gg_dot')
 
     # Phase2 : Cruise
     cruise.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
@@ -154,8 +157,10 @@ def main():
     cruise.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     cruise.add_parameter('gg', val=0.0, opt=False, units='rad')
     cruise.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
+    # cruise.add_path_constraint('gg_dot', lower=0.005, upper=0.005,  units='rad/s')  # stay above stall speed
     cruise.add_timeseries_output('gg')
-    cruise.add_timeseries_output('V_dot')
+    cruise.add_timeseries_output('V_dot')  # commented out for debugging
+    cruise.add_timeseries_output('gg_dot')
 
     # Phase3 : Descent
     descent.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
@@ -170,11 +175,13 @@ def main():
     descent.add_state('V', rate_source='V_dot', fix_initial=False, fix_final=False, units='m/s',
                        lower=10, upper=30, ref=10.0, defect_ref=10.0)
     descent.add_control('Tp', lower=0.0, upper=1.0)
-    descent.add_control('gg', lower=np.radians(-5), upper=np.radians(5), units='rad')
+    descent.add_state('gg', rate_source='gg_dot', fix_initial=False, fix_final=False, units='rad',
+                       lower=np.radians(-5), upper=np.radians(5), ref=0.1, defect_ref=0.1)
     descent.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     descent.add_boundary_constraint('time', loc='final', equals=total_duration, units='s', ref=1e4)
     descent.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
-    descent.add_timeseries_output('V_dot')
+    descent.add_timeseries_output('V_dot')  # commented out for debugging
+    descent.add_timeseries_output('gg_dot')
     # descent.add_objective('DV_sw_int', loc='final', ref=1e1)
     # descent.add_objective('Psol_sw_int', loc='final', ref=-1e5)
     descent.add_objective('Net_sw_int', loc='final', ref=-5e6)  # maximize Net_sw = Psol_sw - DV_sw + Epot_sw
@@ -198,7 +205,7 @@ def main():
     climb.set_state_val('SOC', [soc_initial, soc_initial + climb_duration_guess * net_sw_guess_rate / battery_max_energy])
     climb.set_state_val('V', [15, 25])
     climb.set_control_val('Tp', [0.7, 0.7])
-    climb.set_control_val('gg', [np.radians(2), 0.0])
+    climb.set_state_val('gg', [np.radians(2), 0.0])
     climb.set_control_val('aa', [np.radians(2), np.radians(2)])
 
     dv_sw_int_climb_end = climb_duration_guess * dv_sw_guess_rate
@@ -236,7 +243,7 @@ def main():
     descent.set_state_val('SOC', [soc_cruise_end, soc_cruise_end + descent_duration_guess * net_sw_guess_rate / battery_max_energy])
     descent.set_state_val('V', [25, 15])
     descent.set_control_val('Tp', [0.2, 0.2])
-    descent.set_control_val('gg', [0.0, np.radians(-2)])
+    descent.set_state_val('gg', [0.0, np.radians(-2)])
     descent.set_control_val('aa', [np.radians(2), np.radians(2)])
 
     start_time = time.perf_counter()
@@ -249,9 +256,12 @@ def main():
     elapsed = time.perf_counter() - start_time
     print(f"Elapsed time: {elapsed:.2f} seconds")
 
-    # Generate the explicitly simulated trajectory
+    # Generate the explicitly simulated trajectory - comment out the traj.simulate() call
+    # (e.g. while iterating on the solve itself) to skip it; plot_longitudinal then just
+    # plots the solution, with no simulation curves and no warnings.
+    exp_out = None
     simulation_record_file = 'simulation.db'
-    exp_out = traj.simulate(record_file=simulation_record_file)
+    # exp_out = traj.simulate(record_file=simulation_record_file)
 
     # Check the results
     print('Climb duration (s):', prob.get_val('traj.climb.t_duration')[0])
@@ -266,11 +276,14 @@ def main():
     print('Integral of Epot_sw (potential energy) over mission (J/m^2):', prob.get_val('traj.descent.timeseries.Epot_sw_int')[-1, 0])
     print('Final battery state of charge:', prob.get_val('traj.descent.timeseries.SOC')[-1, 0])
 
-    # Records
+    # Records - 'simulation' is only included if traj.simulate() actually ran above;
+    # plot_longitudinal.py treats its absence as "solution only, no simulation curves".
     solution_path = str(prob.get_outputs_dir() / solution_record_file)
-    simulation_path = str(prob.get_outputs_dir() / 'traj_simulation_0_out' / simulation_record_file)
+    paths = {'solution': solution_path}
+    if exp_out is not None:
+        paths['simulation'] = str(prob.get_outputs_dir() / 'traj_simulation_0_out' / simulation_record_file)
     with open(paths_file, 'w') as f:
-        json.dump({'solution': solution_path, 'simulation': simulation_path}, f, indent=2)
+        json.dump(paths, f, indent=2)
 
     return prob, exp_out
 

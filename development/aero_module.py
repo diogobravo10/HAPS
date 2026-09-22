@@ -11,7 +11,7 @@ Tinst_sw = 10 # N/m^2
 mu_prop = 0.7 # Propeller efficiency depends on advance ratio ()
 
 # E216 low reynolds number airfoil
-# a1, a2, a3, a4, a5, a6 = 3.77421e-1, 1.24316e-1, 7.64615e-7, -5.68228e-3, -6.44553e-13, -2.65058e-8
+a1, a2, a3, a4, a5, a6 = 3.77421e-1, 1.24316e-1, 7.64615e-7, -5.68228e-3, -6.44553e-13, -2.65058e-8
 b1, b2, b3, b4, b5, b6, b7, b8, b9 = 6.44815e-2, -1.87841e-7, 1.79326e-13, -1.11385e-2, 3.75046e-8, -3.10591e-14, 1.09753e-3, -2.36796e-9, 1.58461e-15
 
 
@@ -31,7 +31,7 @@ class DragPowerDissipation(om.ExplicitComponent):
 
         # Outputs: Variable to be integrated
         self.add_output('V_dot', val=np.zeros(nn), units='m/s**2')
-        # self.add_output('gg_dot', val=np.zeros(nn), units='rad/s')
+        self.add_output('gg_dot', val=np.zeros(nn), units='rad/s')
         self.add_output('DV_sw', val=np.zeros(nn), units='W/m**2')
         self.add_output('TV_sw', val=np.zeros(nn), units='W/m**2')
         self.add_output('Vmargin', val=np.zeros(nn), units='m/s')
@@ -59,10 +59,10 @@ class DragPowerDissipation(om.ExplicitComponent):
         self.declare_partials(of='V_dot', wrt='aa', rows=arange, cols=arange)
         self.declare_partials(of='V_dot', wrt='gg', rows=arange, cols=arange)
 
-        # self.declare_partials(of='gg_dot', wrt='V', rows=arange, cols=arange)
-        # self.declare_partials(of='gg_dot', wrt='h', rows=arange, cols=arange, method='fd')
-        # self.declare_partials(of='gg_dot', wrt='aa', rows=arange, cols=arange)
-        # self.declare_partials(of='gg_dot', wrt='gg', rows=arange, cols=arange)
+        self.declare_partials(of='gg_dot', wrt='V', rows=arange, cols=arange)
+        self.declare_partials(of='gg_dot', wrt='h', rows=arange, cols=arange, method='fd')
+        self.declare_partials(of='gg_dot', wrt='aa', rows=arange, cols=arange)
+        self.declare_partials(of='gg_dot', wrt='gg', rows=arange, cols=arange)
 
 
     def compute(self, inputs, outputs):
@@ -74,8 +74,8 @@ class DragPowerDissipation(om.ExplicitComponent):
         gg = inputs['gg']
 
         sin_gg = np.sin(gg)
-        # cos_gg = np.cos(gg)
-        # cos_phi = 1
+        cos_gg = np.cos(gg)
+        cos_phi = 1
 
         # CL and CD are fitted to a set of equations of the Reynolds number Re and the attack angle aa, 
         # where the Reynolds number is calculated according to current altitude and flight velocity
@@ -85,10 +85,10 @@ class DragPowerDissipation(om.ExplicitComponent):
 
         Re = V * chord / kviscosity
 
-        # CL = a1 + a2 * aa + a3 * Re + a4 * aa**2 + a5 * Re**2 + a6 * aa * Re
+        CL = a1 + a2 * aa + a3 * Re + a4 * aa**2 + a5 * Re**2 + a6 * aa * Re
         CD = b1 + b2 * Re + b3 * Re**2 + b4 * aa + b5 * aa*Re + b6 * aa * Re**2 + b7 * aa**2 + b8 * aa**2 * Re + b9 * aa**2 * Re**2
 
-        # L_sw = 1/2 * rho * V**2 * CL
+        L_sw = 1/2 * rho * V**2 * CL
         D_sw =  1/2 * rho * V**2 * CD
 
         # Stall speed
@@ -98,7 +98,7 @@ class DragPowerDissipation(om.ExplicitComponent):
         outputs['TV_sw'] = Tp * Tinst_sw * V /mu_prop
         outputs['Vmargin'] = V - 1.2*Vstall
         outputs['V_dot'] = (Tp*Tinst_sw - D_sw) / M_sw - g*sin_gg
-        # outputs['gg_dot'] = L_sw / (V* M_sw) * cos_phi - g*cos_gg/V
+        outputs['gg_dot'] = L_sw / (V* M_sw) * cos_phi - g*cos_gg/V
 
 
     def compute_partials(self, inputs, partials):
@@ -137,6 +137,6 @@ class DragPowerDissipation(om.ExplicitComponent):
         partials['V_dot', 'V'] = -rho * V / (2*M_sw) * (2*(b1 + b4*aa + b7*aa**2) + 3*(b2 + b5*aa + b8*aa**2)*Re + 4*(b3 + b6*aa + b9*aa**2)*Re**2)
         partials['V_dot', 'aa'] = -rho * V**2 / (2*M_sw) * (b4 + b5*Re + b6*Re**2 + 2*b7*aa + 2*b8*aa*Re + 2*b9*aa*Re**2) * (180/np.pi)
 
-        # partials['gg_dot', 'gg'] = g* sin_gg / V       
-        # partials['gg_dot', 'aa'] = rho * V * cos_phi/ (2*M_sw) * (a2 + 2*a4*aa + a6*Re) * (180/np.pi)
-        # partials['gg_dot', 'V'] = g*cos_gg/V**2 + rho* cos_phi / (2*M_sw) * (a1 + a2*aa + 2*a3*Re + a4*aa**2 + 3*a5*Re**2 + 2*a6*aa*Re)
+        partials['gg_dot', 'gg'] = g* sin_gg / V       
+        partials['gg_dot', 'aa'] = rho * V * cos_phi/ (2*M_sw) * (a2 + 2*a4*aa + a6*Re) * (180/np.pi)
+        partials['gg_dot', 'V'] = g*cos_gg/V**2 + rho* cos_phi / (2*M_sw) * (a1 + a2*aa + 2*a3*Re + a4*aa**2 + 3*a5*Re**2 + 2*a6*aa*Re)

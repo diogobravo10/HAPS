@@ -7,6 +7,7 @@ import kinematics3D as kinematics_3d
 import longitudinal_kinematics as longitudinalkinematics
 import potential_module
 import aero_module
+import battery_module
 
 
 def test_lateral_kinematics():
@@ -182,6 +183,32 @@ def test_aero_module():
     return p.check_partials(method='fd', form='central', step=1e-6, compact_print=True)
 
 
+def test_battery_module():
+    num_nodes = 7
+
+    p = om.Problem(model=om.Group())
+
+    ivc = p.model.add_subsystem('vars', om.IndepVarComp())
+    ivc.add_output('SOC', shape=(num_nodes,), units=None)
+    ivc.add_output('Net_sw', shape=(num_nodes,), units='W/m**2')
+
+    p.model.add_subsystem('ode', battery_module.StateOfCharge(num_nodes=num_nodes))
+
+    p.model.connect('vars.SOC', 'ode.SOC')
+    p.model.connect('vars.Net_sw', 'ode.Net_sw')
+
+    p.setup(force_alloc_complex=True)
+
+    # Deliberately straddles the SOC_max=0.8 saturation band (both sides, and net_sw of
+    # both signs right at the cap) plus well away from it, since that's where the smooth
+    # gate's partials are most at risk of a mistake.
+    p.set_val('vars.SOC', [0.3, 0.6, 0.79, 0.8, 0.8, 0.81, 0.95])
+    p.set_val('vars.Net_sw', [50.0, -30.0, 40.0, 50.0, -50.0, 20.0, -10.0])
+
+    p.run_model()
+    return p.check_partials(method='cs', compact_print=True)
+
+
 if __name__ == '__main__':
     # test_lateral_kinematics()
     # test_3d_kinematics()
@@ -189,3 +216,4 @@ if __name__ == '__main__':
     # test_potential_module()
     # test_potential_module_totals()
     test_aero_module()
+    # test_battery_module()
