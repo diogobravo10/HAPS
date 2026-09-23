@@ -3,7 +3,7 @@ import openmdao.api as om
 import dymos as dm
 from dymos.examples.plotting import plot_results
 import matplotlib.pyplot as plt
-import lateral_kinematics_cylinder as kinematics
+import module_lateral_kinematics_cylinder as kinematics
 import time
 
 total_duration = 2 * 3600  # s - single combined duration bound for all 3 stages

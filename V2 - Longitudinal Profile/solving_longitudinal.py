@@ -2,11 +2,11 @@ import json
 import numpy as np
 import openmdao.api as om
 import dymos as dm
-import longitudinal_kinematics as kinematics
-import aero_module
-import solar_module
-import potential_module
-import battery_module
+import module_longitudinal_kinematics as kinematics
+import module_aero
+import module_solar
+import module_potential
+import module_battery
 import time
 
 low_altitude = 10000.0  # m -> Lower altitudes -> Lower stall speed -> Decrease in Speed -> Decrease in energy consumption (V***3)
@@ -36,15 +36,15 @@ net_sw_guess_rate = psol_sw_guess_rate - dv_sw_guess_rate - tv_sw_guess_rate
 # climb vs. descent (unlike DV_sw/Psol_sw, which are roughly constant throughout). Climb
 # only gains (cruise_altitude - low_altitude), not cruise_altitude from the ground.
 climb_altitude_gain = cruise_altitude - initial_altitude
-epot_sw_climb_guess_rate = potential_module.M_sw * potential_module.g * climb_altitude_gain / climb_duration_guess
-epot_sw_descent_guess_rate = -potential_module.M_sw * potential_module.g * climb_altitude_gain / descent_duration_guess
+epot_sw_climb_guess_rate = module_potential.M_sw * module_potential.g * climb_altitude_gain / climb_duration_guess
+epot_sw_descent_guess_rate = -module_potential.M_sw * module_potential.g * climb_altitude_gain / descent_duration_guess
 # Peak magnitude of Epot_sw_int over the mission (used to scale that state) - the state
 # itself dips to ~0 at climb start/descent end, but ranges over roughly this much in between.
-epot_sw_int_ref = potential_module.M_sw * potential_module.g * climb_altitude_gain
+epot_sw_int_ref = module_potential.M_sw * module_potential.g * climb_altitude_gain
 
 # Battery energy capacity per unit wing area, same formula as battery_module.StateOfCharge
 # uses internally - needed here only to seed SOC's initial guess from Net_sw_int's guess.
-battery_max_energy = battery_module.mb * 3600 * battery_module.mbat_sw
+battery_max_energy = module_battery.mb * 3600 * module_battery.mbat_sw
 soc_initial = 0.2  # start the mission fully charged
 
 paths_file = 'solving_longitudinal_paths.json'
@@ -77,11 +77,11 @@ class LongitudinalODE(om.Group):
 
         self.add_subsystem('kinematics', kinematics.Kinematics(num_nodes=nn),
                             promotes_inputs=['V', 'gg'], promotes_outputs=['h_dot'])
-        self.add_subsystem('aero', aero_module.DragPowerDissipation(num_nodes=nn),
+        self.add_subsystem('aero', module_aero.DragPowerDissipation(num_nodes=nn),
                             promotes_inputs=['V', 'h', 'aa', 'Tp', 'gg'], promotes_outputs=['DV_sw', 'TV_sw' ,'Vmargin', 'V_dot', 'gg_dot'])
-        self.add_subsystem('solar', solar_module.SolarPower(num_nodes=nn, start_date=solar_module.start_date, lat=solar_module.lat),
+        self.add_subsystem('solar', module_solar.SolarPower(num_nodes=nn, start_date=module_solar.start_date, lat=module_solar.lat),
                             promotes_inputs=['h', 'time'], promotes_outputs=['Psol_sw'])
-        self.add_subsystem('potential', potential_module.PotentialPower(num_nodes=nn),
+        self.add_subsystem('potential', module_potential.PotentialPower(num_nodes=nn),
                             promotes_inputs=['h_dot'], promotes_outputs=['Epot_sw'])
         # Dymos objectives take a single named variable, not an expression, so the
         # difference is computed here as its own ODE output and integrated as its own
@@ -93,7 +93,7 @@ class LongitudinalODE(om.Group):
                                                TV_sw={'units': 'W/m**2', 'shape': (nn,)},
                                                Epot_sw={'units': 'W/m**2', 'shape': (nn,)}),
                             promotes=['Net_sw', 'Psol_sw', 'DV_sw', 'TV_sw', 'Epot_sw'])
-        self.add_subsystem('battery', battery_module.StateOfCharge(num_nodes=nn),
+        self.add_subsystem('battery', module_battery.StateOfCharge(num_nodes=nn),
                             promotes_inputs=['SOC', 'Net_sw'], promotes_outputs=['SOC_dot'])
 
 

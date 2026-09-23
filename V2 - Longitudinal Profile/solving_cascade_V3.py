@@ -2,7 +2,7 @@ import json
 import numpy as np
 import openmdao.api as om
 import dymos as dm
-import lateral_kinematics_cylinder
+import module_lateral_kinematics_cylinder
 import solving_longitudinal
 import plot_cascade
 import time
@@ -35,7 +35,7 @@ class LateralWithVHProfile(om.Group):
                                                 t_data=self.options['t_data'],
                                                 h_data=self.options['h_data']),
                            promotes=['*'])
-        self.add_subsystem('kinematics', lateral_kinematics_cylinder.Kinematics(num_nodes=nn), promotes=['*'])
+        self.add_subsystem('kinematics', module_lateral_kinematics_cylinder.Kinematics(num_nodes=nn), promotes=['*'])
 
 
 lateral_paths_file = 'solving_lateral_paths.json'

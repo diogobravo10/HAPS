@@ -2,10 +2,10 @@ import importlib
 
 import numpy as np
 import openmdao.api as om
-import longitudinal_kinematics as longitudinalkinematics
-import potential_module
-import aero_module
-import battery_module
+import module_longitudinal_kinematics as longitudinalkinematics
+import module_potential
+import module_aero
+import module_battery
 
 
 
@@ -40,7 +40,7 @@ def test_potential_module():
     ivc = p.model.add_subsystem('vars', om.IndepVarComp())
     ivc.add_output('h_dot', shape=(num_nodes,), units='m/s')
 
-    p.model.add_subsystem('ode', potential_module.PotentialPower(num_nodes=num_nodes))
+    p.model.add_subsystem('ode', module_potential.PotentialPower(num_nodes=num_nodes))
 
     p.model.connect('vars.h_dot', 'ode.h_dot')
 
@@ -68,7 +68,7 @@ def test_potential_module_totals():
     ivc.add_output('gg', shape=(num_nodes,), units='rad')
 
     p.model.add_subsystem('kin', longitudinalkinematics.Kinematics(num_nodes=num_nodes))
-    p.model.add_subsystem('pot', potential_module.PotentialPower(num_nodes=num_nodes))
+    p.model.add_subsystem('pot', module_potential.PotentialPower(num_nodes=num_nodes))
 
     p.model.connect('vars.V', 'kin.V')
     p.model.connect('vars.gg', 'kin.gg')
@@ -97,7 +97,7 @@ def test_aero_module():
     ivc.add_output('Tp', shape=(num_nodes,))
     ivc.add_output('gg', shape=(num_nodes,), units='rad')
 
-    p.model.add_subsystem('ode', aero_module.DragPowerDissipation(num_nodes=num_nodes))
+    p.model.add_subsystem('ode', module_aero.DragPowerDissipation(num_nodes=num_nodes))
 
     for name in ['V', 'h', 'aa', 'Tp', 'gg']:
         p.model.connect(f'vars.{name}', f'ode.{name}')
@@ -127,7 +127,7 @@ def test_battery_module():
     ivc.add_output('SOC', shape=(num_nodes,), units=None)
     ivc.add_output('Net_sw', shape=(num_nodes,), units='W/m**2')
 
-    p.model.add_subsystem('ode', battery_module.StateOfCharge(num_nodes=num_nodes))
+    p.model.add_subsystem('ode', module_battery.StateOfCharge(num_nodes=num_nodes))
 
     p.model.connect('vars.SOC', 'ode.SOC')
     p.model.connect('vars.Net_sw', 'ode.Net_sw')
@@ -145,10 +145,8 @@ def test_battery_module():
 
 
 if __name__ == '__main__':
-    # test_lateral_kinematics()
-    # test_3d_kinematics()
-    # test_longitudinal_kinematics()
-    # test_potential_module()
-    # test_potential_module_totals()
+    test_longitudinal_kinematics()
+    test_potential_module()
+    test_potential_module_totals()
     test_aero_module()
-    # test_battery_module()
+    test_battery_module()
