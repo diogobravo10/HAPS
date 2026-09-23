@@ -52,7 +52,7 @@ def plot_solsim(ax, t_sol, y_sol, t_sim, y_sim, color=None, label=None):
         ax.plot(t_sim, y_sim, '-', label=sim_label, **kwargs)
 
 
-def main():
+def main(M_sw = 3.7, g = 9.81, CLmax = 1.2):
     with open(paths_file) as f:
         paths = json.load(f)
 
@@ -121,7 +121,7 @@ def main():
     # (sparser, node-only) trace.
     h_ref = h_sim if have_sim else h_sol
     rho_ref = Atmosphere(h_ref).density
-    V_stall_ref = np.sqrt(2 * M_Sw * g / (rho_ref * CLmax))
+    V_stall_ref = np.sqrt(2 * M_sw * g / (rho_ref * CLmax))
 
     ax_stall.plot(h_ref, V_stall_ref, 'k--', label='V_stall')
     ax_stall.plot(h_ref, 1.2 * V_stall_ref, 'r--', label='1.2 x V_stall (margin threshold)')

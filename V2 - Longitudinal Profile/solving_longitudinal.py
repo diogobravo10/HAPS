@@ -14,7 +14,7 @@ from datetime import datetime
 # Mission parameters - kept as module-level defaults (rather than only inside main()'s
 # signature) since solving_cascade_V3.py reads solving_longitudinal.total_duration
 # directly, to size the lateral phase's duration without duplicating the constant.
-low_altitude = 10000.0  # m -> Lower altitudes -> Lower stall speed -> Decrease in Speed -> Decrease in energy consumption (V***3)
+low_altitude = 11100.0  # m -> Lower altitudes -> Lower stall speed -> Decrease in Speed -> Decrease in energy consumption (V***3)
 initial_altitude = 12000.0  # m 
 cruise_altitude = 17000.0  # m
 maximum_altitude = 24000.0 # m
@@ -128,18 +128,18 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
                        solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
 
     # Rough estimates for the initial guess only (not bounds) - adjust as needed
-    climb_duration_guess = 16500.0
+    climb_duration_guess = 9000.0
     cruise_duration_guess = 60000.0
     descent_duration_guess = total_duration - climb_duration_guess - cruise_duration_guess
 
     # Rough estimate of DV_sw (avg drag-dissipation power density) - low_altitude..cruise_altitude
     # is thin air with much less drag than the old sea-level-anchored guess assumed.
-    dv_sw_guess_rate = 12
+    dv_sw_guess_rate = 15
     # Rough estimate of TV_sw (avg propulsion power density drawn by the propeller) - order of
     # magnitude from Tp*Tinst_sw*V/mu_prop at representative Tp~0.3, V~20.
-    tv_sw_guess_rate = 80
+    tv_sw_guess_rate = 23
     # Rough estimate of Psol_sw (avg solar power density, day+night averaged over the mission)
-    psol_sw_guess_rate = 70
+    psol_sw_guess_rate = 135
     # Rough estimate of Net_sw = Psol_sw - DV_sw - TV_sw, used only to seed Net_sw_int's guess
     net_sw_guess_rate = psol_sw_guess_rate - dv_sw_guess_rate - tv_sw_guess_rate
 
@@ -161,12 +161,17 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     # Initialize the Problem and the optimization driver
     prob = om.Problem(model=om.Group(), name='solving_longitudinal')
 
-    prob.driver = om.ScipyOptimizeDriver() # Or pyOptSparseDriver(optimizer='IPOPT')
-    prob.driver.options['optimizer'] = 'SLSQP'
-    prob.driver.options['maxiter'] = 5000
-    prob.driver.options['tol'] = 1e-4
-    prob.driver.opt_settings['maxiter'] = 5000
-    prob.driver.opt_settings['ftol'] = 1e-4
+    # prob.driver = om.ScipyOptimizeDriver()
+    # prob.driver.options['optimizer'] = 'SLSQP'
+    # prob.driver.options['maxiter'] = 5000
+    # prob.driver.options['tol'] = 1e-4
+    # prob.driver.opt_settings['maxiter'] = 5000
+    # prob.driver.opt_settings['ftol'] = 1e-4
+
+    prob.driver = om.pyOptSparseDriver(optimizer='IPOPT')
+    prob.driver.opt_settings['max_iter'] = 5000
+    prob.driver.opt_settings['tol'] = 1e-4
+
 
     prob.driver.declare_coloring()
 
@@ -206,7 +211,7 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     climb.add_timeseries_output('gg_dot')
 
     # Phase2 : Cruise
-    cruise.set_time_options(fix_initial=False, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
+    cruise.set_time_options(fix_initial=False, duration_bounds=(3*10*12*60, total_duration), duration_ref=1e4)
     cruise.add_state('h', rate_source='h_dot', fix_initial=False, fix_final=False, units='m',  lower=0.0, upper=maximum_altitude, ref=1e4, defect_ref=1e4)
     cruise.add_state('DV_sw_int', rate_source='DV_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
     cruise.add_state('TV_sw_int', rate_source='TV_sw', fix_initial=False, fix_final=False, units='J/m**2', ref=1e6, defect_ref=1e6)
@@ -220,6 +225,7 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     cruise.add_control('aa', lower=np.radians(-5), upper=np.radians(10), units='rad')
     cruise.add_parameter('gg', val=0.0, opt=False, units='rad')
     cruise.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
+    # cruise.add_path_constraint('V_dot', equals=0.0, units='m/s**2', ref=0.01)
     # cruise.add_path_constraint('gg_dot', lower=0.005, upper=0.005,  units='rad/s')  # stay above stall speed
     cruise.add_timeseries_output('gg')
     cruise.add_timeseries_output('V_dot')  # commented out for debugging
@@ -245,12 +251,11 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     descent.add_path_constraint('Vmargin', lower=0.0, units='m/s')  # stay above stall speed
     descent.add_timeseries_output('V_dot')  # commented out for debugging
     descent.add_timeseries_output('gg_dot')
-    # descent.add_objective('DV_sw_int', loc='final', ref=1e1)
-    # descent.add_objective('Psol_sw_int', loc='final', ref=-1e5)
+
     descent.add_objective('Net_sw_int', loc='final', ref=-5e6)  # maximize Net_sw = Psol_sw - DV_sw + Epot_sw
 
     traj.link_phases(phases=['climb', 'cruise', 'descent'],
-                      vars=['h', 'time', 'DV_sw_int', 'TV_sw_int', 'Psol_sw_int', 'Net_sw_int', 'Epot_sw_int', 'SOC', 'V', 'aa', 'Tp'])
+                      vars=['h', 'time', 'DV_sw_int', 'TV_sw_int', 'Psol_sw_int', 'Net_sw_int', 'Epot_sw_int', 'SOC', 'V', 'aa', 'Tp', 'gg'])
 
     prob.model.linear_solver = om.DirectSolver()
 
@@ -306,8 +311,8 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     descent.set_state_val('SOC', [soc_cruise_end, soc_cruise_end + descent_duration_guess * net_sw_guess_rate / battery_max_energy])
     descent.set_state_val('V', [25, 15])
     descent.set_control_val('Tp', [0.2, 0.2])
-    descent.set_state_val('gg', [0.0, np.radians(-2)])
-    descent.set_control_val('aa', [np.radians(2), np.radians(2)])
+    descent.set_state_val('gg', [np.radians(-2), np.radians(2)])
+    descent.set_control_val('aa', [np.radians(0), np.radians(2)])
 
     start_time = time.perf_counter()
 
@@ -324,7 +329,7 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     # plots the solution, with no simulation curves and no warnings.
     exp_out = None
     simulation_record_file = 'simulation.db'
-    exp_out = traj.simulate(record_file=simulation_record_file)
+    # exp_out = traj.simulate(record_file=simulation_record_file)
 
     # Check the results
     print('Climb duration (s):', prob.get_val('traj.climb.t_duration')[0])
@@ -356,6 +361,10 @@ if __name__ == '__main__':
     # back from this module, and importing it up top (before paths_file is defined
     # below) breaks any plain `import solving_longitudinal` from another script (e.g.
     # solving_cascade_V3.py) with a circular-import ImportError.
+    M_sw = 3.7
+    g = 9.81
+    CLmax = 1.2
+
     import plot_longitudinal
-    main()
-    plot_longitudinal.main()
+    main(M_sw = M_sw, g = g, CLmax = CLmax)
+    plot_longitudinal.main(M_sw = M_sw, g = g, CLmax = CLmax)
