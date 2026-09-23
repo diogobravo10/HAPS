@@ -1,14 +1,14 @@
 import numpy as np
 import openmdao.api as om
 
-mbat_sw = 2.0 # [kg/m**2]
-mb = 450 # [Wh/Kg] -> energy density LS-battery
-mu_e = 0.9 # efficiency energy management system
-mu_LS = 0.9 # efficiency LS-battery
 
 class StateOfCharge(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('num_nodes', types=int)
+        self.options.declare('mbat_sw', default=2.0, types=(int, float), desc='Battery mass per unit wing area [kg/m^2]')
+        self.options.declare('mb', default=450.0, types=(int, float), desc='Battery energy density [Wh/kg]')
+        self.options.declare('mu_e', default=0.9, types=(int, float), desc='Energy management system efficiency')
+        self.options.declare('mu_LS', default=0.9, types=(int, float), desc='LS-battery efficiency')
 
     def setup(self):
         nn = self.options['num_nodes']
@@ -30,6 +30,9 @@ class StateOfCharge(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         # Used to compute the outputs, given the inputs.
+        mbat_sw = self.options['mbat_sw']
+        mb = self.options['mb']
+
         Net_sw = inputs['Net_sw']
 
         # Battery energy capacity per unit wing area (mb is Wh/kg -> J/m**2 via *3600).
@@ -42,6 +45,8 @@ class StateOfCharge(om.ExplicitComponent):
 
     def compute_partials(self, inputs, partials):
         nn = self.options['num_nodes']
+        mbat_sw = self.options['mbat_sw']
+        mb = self.options['mb']
         max_energy = mb * 60*60 * mbat_sw
 
         partials['SOC_dot', 'Net_sw'] = np.ones(nn) / max_energy

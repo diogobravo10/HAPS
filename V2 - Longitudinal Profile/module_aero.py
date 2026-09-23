@@ -2,15 +2,7 @@ import numpy as np
 import openmdao.api as om
 from ambiance import Atmosphere
 
-# Parameters
-g = 9.81
-chord = 1 # dimensionalize by a 1meter
-M_sw = 3.0 # [kg/m^2]
-CD, CLmax = 0.0708, 1.2
-Tinst_sw = 10 # N/m^2
-mu_prop = 0.7 # Propeller efficiency depends on advance ratio ()
-
-# E216 low reynolds number airfoil
+# E216 low reynolds number airfoil - fixed polar fit, not a caller-supplied parameter
 a1, a2, a3, a4, a5, a6 = 3.77421e-1, 1.24316e-1, 7.64615e-7, -5.68228e-3, -6.44553e-13, -2.65058e-8
 b1, b2, b3, b4, b5, b6, b7, b8, b9 = 6.44815e-2, -1.87841e-7, 1.79326e-13, -1.11385e-2, 3.75046e-8, -3.10591e-14, 1.09753e-3, -2.36796e-9, 1.58461e-15
 
@@ -18,6 +10,12 @@ b1, b2, b3, b4, b5, b6, b7, b8, b9 = 6.44815e-2, -1.87841e-7, 1.79326e-13, -1.11
 class DragPowerDissipation(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('num_nodes', types=int)
+        self.options.declare('g', default=9.81, types=(int, float), desc='Gravitational acceleration [m/s^2]')
+        self.options.declare('chord', default=1.0, types=(int, float), desc='Reference chord, dimensionalizes Re [m]')
+        self.options.declare('M_sw', default=3.0, types=(int, float), desc='Wing loading (mass per unit wing area) [kg/m^2]')
+        self.options.declare('CLmax', default=1.2, types=(int, float), desc='Max lift coefficient, for stall speed')
+        self.options.declare('Tinst_sw', default=10.0, types=(int, float), desc='Installed thrust per unit wing area [N/m^2]')
+        self.options.declare('mu_prop', default=0.7, types=(int, float), desc='Propeller efficiency')
 
     def setup(self):
         nn = self.options['num_nodes']
@@ -67,6 +65,13 @@ class DragPowerDissipation(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         # Used to compute the outputs, given the inputs.
+        g = self.options['g']
+        chord = self.options['chord']
+        M_sw = self.options['M_sw']
+        CLmax = self.options['CLmax']
+        Tinst_sw = self.options['Tinst_sw']
+        mu_prop = self.options['mu_prop']
+
         V = inputs['V']
         h = inputs['h']
         aa = np.degrees(inputs['aa'])
@@ -103,9 +108,13 @@ class DragPowerDissipation(om.ExplicitComponent):
 
     def compute_partials(self, inputs, partials):
 
-
         nn = self.options['num_nodes']
-       
+        g = self.options['g']
+        chord = self.options['chord']
+        M_sw = self.options['M_sw']
+        Tinst_sw = self.options['Tinst_sw']
+        mu_prop = self.options['mu_prop']
+
         # Used to compute the derivatives of the outputs w.r.t. each of the inputs analytically
         V = inputs['V']
         h = inputs['h']

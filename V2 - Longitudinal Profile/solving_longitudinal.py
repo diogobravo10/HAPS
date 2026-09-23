@@ -8,44 +8,17 @@ import module_solar
 import module_potential
 import module_battery
 import time
+from datetime import datetime
 
+
+# Mission parameters - kept as module-level defaults (rather than only inside main()'s
+# signature) since solving_cascade_V3.py reads solving_longitudinal.total_duration
+# directly, to size the lateral phase's duration without duplicating the constant.
 low_altitude = 10000.0  # m -> Lower altitudes -> Lower stall speed -> Decrease in Speed -> Decrease in energy consumption (V***3)
 initial_altitude = 12000.0  # m 
 cruise_altitude = 17000.0  # m
 maximum_altitude = 24000.0 # m
 total_duration = 24 * 3600  # s - single combined duration bound for all 3 stages
-
-# Rough estimates for the initial guess only (not bounds) - adjust as needed
-climb_duration_guess = 16500.0
-cruise_duration_guess = 60000.0
-descent_duration_guess = total_duration - climb_duration_guess - cruise_duration_guess
-
-# Rough estimate of DV_sw (avg drag-dissipation power density) - low_altitude..cruise_altitude
-# is thin air with much less drag than the old sea-level-anchored guess assumed.
-dv_sw_guess_rate = 12
-# Rough estimate of TV_sw (avg propulsion power density drawn by the propeller) - order of
-# magnitude from Tp*Tinst_sw*V/mu_prop at representative Tp~0.3, V~20.
-tv_sw_guess_rate = 80
-# Rough estimate of Psol_sw (avg solar power density, day+night averaged over the mission)
-psol_sw_guess_rate = 70
-# Rough estimate of Net_sw = Psol_sw - DV_sw - TV_sw, used only to seed Net_sw_int's guess
-net_sw_guess_rate = psol_sw_guess_rate - dv_sw_guess_rate - tv_sw_guess_rate
-
-# Rough estimate of Epot_sw = M_sw*g*h_dot, from the average h_dot implied by the
-# altitude/duration guesses above - ~0 in cruise (level flight), and opposite sign in
-# climb vs. descent (unlike DV_sw/Psol_sw, which are roughly constant throughout). Climb
-# only gains (cruise_altitude - low_altitude), not cruise_altitude from the ground.
-climb_altitude_gain = cruise_altitude - initial_altitude
-epot_sw_climb_guess_rate = module_potential.M_sw * module_potential.g * climb_altitude_gain / climb_duration_guess
-epot_sw_descent_guess_rate = -module_potential.M_sw * module_potential.g * climb_altitude_gain / descent_duration_guess
-# Peak magnitude of Epot_sw_int over the mission (used to scale that state) - the state
-# itself dips to ~0 at climb start/descent end, but ranges over roughly this much in between.
-epot_sw_int_ref = module_potential.M_sw * module_potential.g * climb_altitude_gain
-
-# Battery energy capacity per unit wing area, same formula as battery_module.StateOfCharge
-# uses internally - needed here only to seed SOC's initial guess from Net_sw_int's guess.
-battery_max_energy = module_battery.mb * 3600 * module_battery.mbat_sw
-soc_initial = 0.2  # start the mission fully charged
 
 paths_file = 'solving_longitudinal_paths.json'
 
@@ -68,20 +41,49 @@ class LongitudinalODE(om.Group):
     gained/lost while climbing/descending, tracked separately from Net_sw for now),
     'SOC_dot' (for the SOC state - battery state of charge, driven by the same Net_sw),
     and 'Vstall'/'Vmargin' (diagnostic outputs, not integrated into any state).
+
+    All physical parameters used by the aero/potential/battery/solar subsystems are
+    declared as options here and forwarded to each subsystem's own constructor, rather
+    than each module hardcoding its own copy - main() passes them through Dymos's
+    ode_init_kwargs, so a single main() call fully determines the aircraft/mission this
+    ODE represents (e.g. for an outer optimization sweeping M_sw/mbat_sw, or cycling
+    start_date/lat).
     """
     def initialize(self):
         self.options.declare('num_nodes', types=int)
+        # Aero + potential (M_sw and g are shared between the two subsystems)
+        self.options.declare('g', default=9.81, types=(int, float), desc='Gravitational acceleration [m/s^2]')
+        self.options.declare('chord', default=1.0, types=(int, float), desc='Reference chord [m]')
+        self.options.declare('M_sw', default=3.0, types=(int, float), desc='Wing loading (mass per unit wing area) [kg/m^2]')
+        self.options.declare('CLmax', default=1.2, types=(int, float), desc='Max lift coefficient, for stall speed')
+        self.options.declare('Tinst_sw', default=10.0, types=(int, float), desc='Installed thrust per unit wing area [N/m^2]')
+        self.options.declare('mu_prop', default=0.7, types=(int, float), desc='Propeller efficiency')
+        # Battery
+        self.options.declare('mbat_sw', default=2.0, types=(int, float), desc='Battery mass per unit wing area [kg/m^2]')
+        self.options.declare('mb', default=450.0, types=(int, float), desc='Battery energy density [Wh/kg]')
+        self.options.declare('mu_e', default=0.9, types=(int, float), desc='Energy management system efficiency')
+        self.options.declare('mu_LS', default=0.9, types=(int, float), desc='LS-battery efficiency')
+        # Solar
+        self.options.declare('start_date', default=datetime(2012, 6, 1, 6, 0), types=datetime)
+        self.options.declare('lat', default=37.5, types=(int, float))
+        self.options.declare('solar_cell_efficiency', default=0.15, types=(int, float))
+        self.options.declare('vnorm', default=np.array([0, 0, -1]))
 
     def setup(self):
         nn = self.options['num_nodes']
+        opts = self.options
 
         self.add_subsystem('kinematics', kinematics.Kinematics(num_nodes=nn),
                             promotes_inputs=['V', 'gg'], promotes_outputs=['h_dot'])
-        self.add_subsystem('aero', module_aero.DragPowerDissipation(num_nodes=nn),
+        self.add_subsystem('aero', module_aero.DragPowerDissipation(
+                                num_nodes=nn, g=opts['g'], chord=opts['chord'], M_sw=opts['M_sw'],
+                                CLmax=opts['CLmax'], Tinst_sw=opts['Tinst_sw'], mu_prop=opts['mu_prop']),
                             promotes_inputs=['V', 'h', 'aa', 'Tp', 'gg'], promotes_outputs=['DV_sw', 'TV_sw' ,'Vmargin', 'V_dot', 'gg_dot'])
-        self.add_subsystem('solar', module_solar.SolarPower(num_nodes=nn, start_date=module_solar.start_date, lat=module_solar.lat),
+        self.add_subsystem('solar', module_solar.SolarPower(
+                                num_nodes=nn, start_date=opts['start_date'], lat=opts['lat'],
+                                solar_cell_efficiency=opts['solar_cell_efficiency'], vnorm=opts['vnorm']),
                             promotes_inputs=['h', 'time'], promotes_outputs=['Psol_sw'])
-        self.add_subsystem('potential', module_potential.PotentialPower(num_nodes=nn),
+        self.add_subsystem('potential', module_potential.PotentialPower(num_nodes=nn, g=opts['g'], M_sw=opts['M_sw']),
                             promotes_inputs=['h_dot'], promotes_outputs=['Epot_sw'])
         # Dymos objectives take a single named variable, not an expression, so the
         # difference is computed here as its own ODE output and integrated as its own
@@ -93,11 +95,69 @@ class LongitudinalODE(om.Group):
                                                TV_sw={'units': 'W/m**2', 'shape': (nn,)},
                                                Epot_sw={'units': 'W/m**2', 'shape': (nn,)}),
                             promotes=['Net_sw', 'Psol_sw', 'DV_sw', 'TV_sw', 'Epot_sw'])
-        self.add_subsystem('battery', module_battery.StateOfCharge(num_nodes=nn),
+        self.add_subsystem('battery', module_battery.StateOfCharge(
+                                num_nodes=nn, mbat_sw=opts['mbat_sw'], mb=opts['mb'], mu_e=opts['mu_e'], mu_LS=opts['mu_LS']),
                             promotes_inputs=['SOC', 'Net_sw'], promotes_outputs=['SOC_dot'])
 
 
-def main():
+def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37.5,
+         g=9.81, chord=1.0, CLmax=1.2, Tinst_sw=10.0, mu_prop=0.7,
+         mb=450.0, mu_e=0.9, mu_LS=0.9, soc_initial=0.2,
+         solar_cell_efficiency=0.15, vnorm=None,
+         low_altitude=low_altitude, initial_altitude=initial_altitude,
+         cruise_altitude=cruise_altitude, maximum_altitude=maximum_altitude,
+         total_duration=total_duration):
+    """Build and solve the climb/cruise/descent longitudinal trajectory.
+
+    M_sw and mbat_sw are meant as the outer optimization's design variables;
+    start_date and lat are meant to be cycled (e.g. over a season/latitude sweep);
+    everything else is a fixed, user-supplied parameter. All of them are plain
+    keyword arguments (module-level constants only supply their defaults) so an
+    outer loop can call main(M_sw=..., mbat_sw=..., start_date=..., lat=...)
+    repeatedly without touching global state.
+    """
+    if vnorm is None:
+        vnorm = np.array([0, 0, -1])
+
+    # Bundles every physical parameter the ODE's subsystems need, forwarded to each
+    # of the three phases below via ode_init_kwargs - the single place that determines
+    # which aircraft/mission/date this particular solve represents.
+    ode_kwargs = dict(g=g, chord=chord, M_sw=M_sw, CLmax=CLmax, Tinst_sw=Tinst_sw, mu_prop=mu_prop,
+                       mbat_sw=mbat_sw, mb=mb, mu_e=mu_e, mu_LS=mu_LS,
+                       start_date=start_date, lat=lat,
+                       solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
+
+    # Rough estimates for the initial guess only (not bounds) - adjust as needed
+    climb_duration_guess = 16500.0
+    cruise_duration_guess = 60000.0
+    descent_duration_guess = total_duration - climb_duration_guess - cruise_duration_guess
+
+    # Rough estimate of DV_sw (avg drag-dissipation power density) - low_altitude..cruise_altitude
+    # is thin air with much less drag than the old sea-level-anchored guess assumed.
+    dv_sw_guess_rate = 12
+    # Rough estimate of TV_sw (avg propulsion power density drawn by the propeller) - order of
+    # magnitude from Tp*Tinst_sw*V/mu_prop at representative Tp~0.3, V~20.
+    tv_sw_guess_rate = 80
+    # Rough estimate of Psol_sw (avg solar power density, day+night averaged over the mission)
+    psol_sw_guess_rate = 70
+    # Rough estimate of Net_sw = Psol_sw - DV_sw - TV_sw, used only to seed Net_sw_int's guess
+    net_sw_guess_rate = psol_sw_guess_rate - dv_sw_guess_rate - tv_sw_guess_rate
+
+    # Rough estimate of Epot_sw = M_sw*g*h_dot, from the average h_dot implied by the
+    # altitude/duration guesses above - ~0 in cruise (level flight), and opposite sign in
+    # climb vs. descent (unlike DV_sw/Psol_sw, which are roughly constant throughout). Climb
+    # only gains (cruise_altitude - low_altitude), not cruise_altitude from the ground.
+    climb_altitude_gain = cruise_altitude - initial_altitude
+    epot_sw_climb_guess_rate = M_sw * g * climb_altitude_gain / climb_duration_guess
+    epot_sw_descent_guess_rate = -M_sw * g * climb_altitude_gain / descent_duration_guess
+    # Peak magnitude of Epot_sw_int over the mission (used to scale that state) - the state
+    # itself dips to ~0 at climb start/descent end, but ranges over roughly this much in between.
+    epot_sw_int_ref = M_sw * g * climb_altitude_gain
+
+    # Battery energy capacity per unit wing area, same formula as module_battery.StateOfCharge
+    # uses internally - needed here only to seed SOC's initial guess from Net_sw_int's guess.
+    battery_max_energy = mb * 3600 * mbat_sw
+
     # Initialize the Problem and the optimization driver
     prob = om.Problem(model=om.Group(), name='solving_longitudinal')
 
@@ -115,9 +175,12 @@ def main():
 
 
     ##### Adaptative Radau considering duration of each stage
-    climb = traj.add_phase('climb', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=5, order=3)))
-    cruise = traj.add_phase('cruise', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=5, order=3)))
-    descent = traj.add_phase('descent', dm.Phase(ode_class=LongitudinalODE, transcription=dm.Radau(num_segments=5, order=3)))
+    climb = traj.add_phase('climb', dm.Phase(ode_class=LongitudinalODE, ode_init_kwargs=ode_kwargs,
+                                              transcription=dm.Radau(num_segments=5, order=3)))
+    cruise = traj.add_phase('cruise', dm.Phase(ode_class=LongitudinalODE, ode_init_kwargs=ode_kwargs,
+                                                transcription=dm.Radau(num_segments=5, order=3)))
+    descent = traj.add_phase('descent', dm.Phase(ode_class=LongitudinalODE, ode_init_kwargs=ode_kwargs,
+                                                  transcription=dm.Radau(num_segments=5, order=3)))
 
     # Phase1 : Climb
     climb.set_time_options(fix_initial=True, duration_bounds=(3*10*5*60, total_duration), duration_ref=1e4)
@@ -261,7 +324,7 @@ def main():
     # plots the solution, with no simulation curves and no warnings.
     exp_out = None
     simulation_record_file = 'simulation.db'
-    # exp_out = traj.simulate(record_file=simulation_record_file)
+    exp_out = traj.simulate(record_file=simulation_record_file)
 
     # Check the results
     print('Climb duration (s):', prob.get_val('traj.climb.t_duration')[0])

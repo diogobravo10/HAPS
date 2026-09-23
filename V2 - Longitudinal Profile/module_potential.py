@@ -1,15 +1,13 @@
 import numpy as np
 import openmdao.api as om
 
-g = 9.81
-M_sw = 3.0 # [kg/m^2]
-
-
 
 class PotentialPower(om.ExplicitComponent):
     def initialize(self):
         # Dymos requires num_nodes to vectorize calculations across the trajectory grid
         self.options.declare('num_nodes', types=int)
+        self.options.declare('g', default=9.81, types=(int, float), desc='Gravitational acceleration [m/s^2]')
+        self.options.declare('M_sw', default=3.0, types=(int, float), desc='Wing loading (mass per unit wing area) [kg/m^2]')
 
     def setup(self):
         nn = self.options['num_nodes']
@@ -28,6 +26,8 @@ class PotentialPower(om.ExplicitComponent):
 
 
     def compute(self, inputs, outputs):
+        g = self.options['g']
+        M_sw = self.options['M_sw']
 
         h_dot = inputs['h_dot']
 
@@ -37,5 +37,7 @@ class PotentialPower(om.ExplicitComponent):
     def compute_partials(self, inputs, partials):
 
         nn = self.options['num_nodes']
+        g = self.options['g']
+        M_sw = self.options['M_sw']
 
         partials['Epot_sw', 'h_dot'] = M_sw*g*np.ones(nn)

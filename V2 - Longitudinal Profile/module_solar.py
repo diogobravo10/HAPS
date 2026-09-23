@@ -10,19 +10,15 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import _utilities as utils
 
-# Reference date/time and latitude for the solar model (t=0 of the phase)
-start_date = datetime(2012, 6, 1, 6, 0)
-lat = 37.5
-# longitude -> important for T_day, T_night
-solar_cell_efficiency = 0.15
-vnorm=np.array([0, 0, -1]) # -> update based on bank angle 
-
-
 class SolarPower(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('num_nodes', types=int)
+        # Reference date/time and latitude for the solar model (t=0 of the phase)
         self.options.declare('start_date', types=datetime)
         self.options.declare('lat', types=(int, float))
+        self.options.declare('solar_cell_efficiency', default=0.15, types=(int, float))
+        # -> update based on bank angle
+        self.options.declare('vnorm', default=np.array([0, 0, -1]))
 
     def setup(self):
         nn = self.options['num_nodes']
@@ -50,8 +46,9 @@ class SolarPower(om.ExplicitComponent):
         h = inputs['h']
         t = inputs['time']
 
-        # Psol_sw = utils.instantaneous_power_density(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
-        Psol_sw = utils.instantaneous_power_density_vect(h, self.options['lat'], self.options['start_date'], t, solar_cell_efficiency=solar_cell_efficiency, vnorm=vnorm)
+        Psol_sw = utils.instantaneous_power_density_vect(
+            h, self.options['lat'], self.options['start_date'], t,
+            solar_cell_efficiency=self.options['solar_cell_efficiency'], vnorm=self.options['vnorm'])
         outputs['Psol_sw'] = Psol_sw
 
 
