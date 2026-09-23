@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import lateral_kinematics_cylinder as kinematics
 import time
 
-total_duration = 24 * 3600  # s - single combined duration bound for all 3 stages
+total_duration = 2 * 3600  # s - single combined duration bound for all 3 stages
 
 # Initialize the Problem and the optimization driver
 prob = om.Problem(model=om.Group())
@@ -24,7 +24,7 @@ prob.driver.declare_coloring()
 traj = prob.model.add_subsystem('traj', dm.Trajectory())
 phase = traj.add_phase('phase0',
                        dm.Phase(ode_class= kinematics.Kinematics,
-                                transcription=dm.Radau(num_segments=30, order=3)))
+                                transcription=dm.Radau(num_segments=100, order=3)))
 
 
 
@@ -36,7 +36,7 @@ phase.add_state('tt', rate_source='tt_dot', fix_initial=True, fix_final=False,un
 
 phase.add_control('V', lower=8, upper=12, units='m/s')
 
-phase.add_parameter('R', val=1000, units='m', opt=False) 
+phase.add_parameter('R', val=100, units='m', opt=False) 
 
 
 phase.add_timeseries_output(['x', 'y'])

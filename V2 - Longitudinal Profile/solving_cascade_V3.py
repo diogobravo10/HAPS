@@ -109,23 +109,15 @@ def solve_lateral(t_data, V_data, h_data, R=lateral_R, num_segments=lateral_num_
     # Check the results
     print('Final time:', prob.get_val('traj.phase0.timeseries.time')[-1])
 
-    # Generate the explicitly simulated trajectory
-    simulation_record_file = 'simulation.db'
-    exp_out = traj.simulate(record_file=simulation_record_file)
-
-    # Record where this run's databases actually landed so plot_cascade.py can find them.
-    # exp_out.get_outputs_dir() is used (rather than assuming 'traj_simulation_0_out')
-    # since grid refinement runs its own internal simulate() calls for error estimation,
-    # which can consume index 0 before this explicit call gets a later index.
+    # Record where this run's database actually landed so plot_cascade.py can find it.
     # seg_names is kept as a one-element list so plot_cascade.py's phase-stitching
-    # helper (built for the old multi-segment layout) still works unchanged.
+    # helper (built for the old multi-segment layout) still works unchanged. No
+    # traj.simulate() call here - plot_cascade.py plots solution points only.
     solution_path = str(prob.get_outputs_dir() / solution_record_file)
-    simulation_path = str(exp_out.get_outputs_dir() / simulation_record_file)
     with open(lateral_paths_file, 'w') as f:
-        json.dump({'solution': solution_path, 'simulation': simulation_path,
-                   'seg_names': ['phase0']}, f, indent=2)
+        json.dump({'solution': solution_path, 'seg_names': ['phase0']}, f, indent=2)
 
-    return prob, exp_out
+    return prob
 
 
 def stitch(varname, source):
@@ -141,15 +133,15 @@ if __name__ == '__main__':
     # up-to-date solving_longitudinal.py itself, rather than re-implementing a
     # simplified copy of it in this file the way solving_cascade_V2 did. This also
     # writes solving_longitudinal_paths.json, which plot_cascade.py reads directly.
-    prob_long, exp_out_long = solving_longitudinal.main()
+    prob_long, _ = solving_longitudinal.main()
 
     # Whole-mission V(t) and h(t) history (climb + cruise + descent, starting at t=0),
-    # taken from the simulated (not collocated) longitudinal trajectory since it's the
-    # physically continuous one - stored together on the same time grid and fed into
-    # the lateral phase below via LateralWithVHProfile.
-    t_data = stitch('time', exp_out_long)
-    V_data = stitch('V', exp_out_long)
-    h_data = stitch('h', exp_out_long)
+    # taken from the solved (collocated) longitudinal trajectory - no traj.simulate()
+    # call, so these are the solution's own node points, stored together on the same
+    # time grid and fed into the lateral phase below via LateralWithVHProfile.
+    t_data = stitch('time', prob_long)
+    V_data = stitch('V', prob_long)
+    h_data = stitch('h', prob_long)
 
     solve_lateral(t_data, V_data, h_data)
 

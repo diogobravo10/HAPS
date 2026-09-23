@@ -142,18 +142,19 @@ def main():
         lat_paths = json.load(f)
 
     long_sol = load_case(long_paths, 'solution')
-    long_sim = load_case(long_paths, 'simulation')
     lat_sol = load_case(lat_paths, 'solution')
-    lat_sim = load_case(lat_paths, 'simulation')
 
     # --- Longitudinal: h(t), V(t), gamma(t) ---
+    # Solution points only - neither solving_longitudinal.py nor solving_cascade_V3.py's
+    # solve_lateral() runs traj.simulate() anymore, so there's no continuous curve to
+    # overlay, and the points themselves are plotted unconnected below: adjacent
+    # collocation nodes aren't a physically continuous trace the way a simulated
+    # trajectory would be.
     t_sol, h_sol, V_sol, gg_sol = (stitch(v, long_sol) for v in ('time', 'h', 'V', 'gg'))
-    t_sim, h_sim, V_sim, gg_sim = (stitch(v, long_sim) for v in ('time', 'h', 'V', 'gg'))
     t_split1 = long_sol.get_val('traj.climb.timeseries.time')[-1, 0]
     t_split2 = long_sol.get_val('traj.cruise.timeseries.time')[-1, 0]
 
     gg_sol = np.rad2deg(gg_sol)
-    gg_sim = np.rad2deg(gg_sim)
 
     # Which longitudinal phase each longitudinal solution point belongs to
     phase_of_long_t = np.where(t_sol < t_split1, 'climb',
@@ -165,13 +166,9 @@ def main():
     for name, color in colors.items():
         mask = phase_of_long_t == name
         if np.any(mask):
-            axs1[0].plot(t_sol[mask], h_sol[mask], '-o', ms=4, color=color, label=name)
-            axs1[1].plot(t_sol[mask], V_sol[mask], '-o', ms=4, color=color)
-            axs1[2].plot(t_sol[mask], gg_sol[mask], '-o', ms=4, color=color)
-
-    axs1[0].plot(t_sim, h_sim, '-', color='gray', lw=2, alpha=0.6, label='simulation')
-    axs1[1].plot(t_sim, V_sim, '-', color='gray', lw=2, alpha=0.6)
-    axs1[2].plot(t_sim, gg_sim, '-', color='gray', lw=2, alpha=0.6)
+            axs1[0].plot(t_sol[mask], h_sol[mask], 'o', ms=4, color=color, label=name)
+            axs1[1].plot(t_sol[mask], V_sol[mask], 'o', ms=4, color=color)
+            axs1[2].plot(t_sol[mask], gg_sol[mask], 'o', ms=4, color=color)
 
     axs1[0].axvline(t_split1, color='gray', ls='--', lw=2)
     axs1[0].axvline(t_split2, color='gray', ls='--', lw=2)
@@ -194,11 +191,8 @@ def main():
     seg_names = lat_paths['seg_names']
     x_sol, y_sol, t_lat_sol, tt_sol = (
         stitch(v, lat_sol, seg_names) for v in ('x', 'y', 'time', 'tt'))
-    x_sim, y_sim, t_lat_sim, tt_sim = (
-        stitch(v, lat_sim, seg_names) for v in ('x', 'y', 'time', 'tt'))
 
     tt_sol = np.rad2deg(tt_sol)
-    tt_sim = np.rad2deg(tt_sim)
 
     # Which longitudinal phase each lateral solution point falls into, based on
     # absolute time - same color code as the longitudinal plots and the 3D plot.
@@ -222,12 +216,8 @@ def main():
         mask = phase_of_lat_t == name
         if np.any(mask):
             lon_sol_m, lat_sol_m = local_xy_to_lonlat(x_sol[mask], y_sol[mask])
-            ax_map.plot(lon_sol_m, lat_sol_m, '-o', ms=4, color=color, label=name, transform=ccrs.PlateCarree())
-            ax_tt.plot(t_lat_sol[mask], tt_sol[mask], '-o', ms=4, color=color)
-
-    lon_sim, lat_sim = local_xy_to_lonlat(x_sim, y_sim)
-    ax_map.plot(lon_sim, lat_sim, '-', color='gray', lw=2, alpha=0.6, label='simulation', transform=ccrs.PlateCarree())
-    ax_tt.plot(t_lat_sim, tt_sim, '-', color='gray', lw=2, alpha=0.6)
+            ax_map.plot(lon_sol_m, lat_sol_m, 'o', ms=4, color=color, label=name, transform=ccrs.PlateCarree())
+            ax_tt.plot(t_lat_sol[mask], tt_sol[mask], 'o', ms=4, color=color)
 
     ax_map.gridlines(draw_labels=True)
     ax_map.legend()
@@ -237,10 +227,8 @@ def main():
 
     # --- 3D (x, y, h): lateral ground track combined with the longitudinal altitude
     # profile at those same times, colored by which longitudinal phase each point
-    # falls into. Solution points are connected by a line (in time order); the
-    # simulation is overlaid as a thin continuous line for comparison. ---
+    # falls into. Solution points only, unconnected. ---
     h_at_lat_sol_t = np.interp(t_lat_sol, t_sol, h_sol)
-    h_at_lat_sim_t = np.interp(t_lat_sim, t_sim, h_sim)
 
     fig3 = plt.figure(figsize=(9, 7))
     ax3 = fig3.add_subplot(111, projection='3d')
@@ -250,15 +238,12 @@ def main():
     # that makes it respect the zorder we set explicitly instead (basemap=0, trajectory=10).
     ax3.computed_zorder = False
 
-    basemap_xlim, basemap_ylim = add_basemap(ax3, np.concatenate([x_sol, x_sim]), np.concatenate([y_sol, y_sim]),
-                                              extent=azores_extent, pixels=200)
+    basemap_xlim, basemap_ylim = add_basemap(ax3, x_sol, y_sol, extent=azores_extent, pixels=200)
 
     for name, color in colors.items():
         mask = phase_of_lat_t == name
         if np.any(mask):
-            ax3.plot(x_sol[mask], y_sol[mask], h_at_lat_sol_t[mask], '-o', ms=4, color=color, label=name, zorder=10)
-
-    ax3.plot(x_sim, y_sim, h_at_lat_sim_t, '-', color='gray', lw=2, alpha=0.6, label='simulation', zorder=10)
+            ax3.plot(x_sol[mask], y_sol[mask], h_at_lat_sol_t[mask], 'o', ms=4, color=color, label=name, zorder=10)
 
     # Pin the floor to exactly azores_extent's own bounds (via basemap_xlim/basemap_ylim,
     # which add_basemap derived from that same extent) - otherwise mplot3d's default
