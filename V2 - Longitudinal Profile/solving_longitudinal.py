@@ -104,7 +104,7 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
          solar_cell_efficiency=0.15, vnorm=None,
          low_altitude=low_altitude, initial_altitude=initial_altitude,
          cruise_altitude=cruise_altitude, maximum_altitude=maximum_altitude,
-         total_duration=total_duration):
+         total_duration=total_duration, prob_name='solving_longitudinal'):
     """Build and solve the climb/cruise/descent longitudinal trajectory.
 
     M_sw and mbat_sw are meant as the outer optimization's design variables;
@@ -157,7 +157,7 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     battery_max_energy = mb * 3600 * mbat_sw
 
     # Initialize the Problem and the optimization driver
-    prob = om.Problem(model=om.Group(), name='solving_longitudinal')
+    prob = om.Problem(model=om.Group(), name=prob_name)
 
     # prob.driver = om.ScipyOptimizeDriver()
     # prob.driver.options['optimizer'] = 'SLSQP'
