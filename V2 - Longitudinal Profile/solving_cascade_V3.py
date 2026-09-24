@@ -133,7 +133,7 @@ if __name__ == '__main__':
     # up-to-date solving_longitudinal.py itself, rather than re-implementing a
     # simplified copy of it in this file the way solving_cascade_V2 did. This also
     # writes solving_longitudinal_paths.json, which plot_cascade.py reads directly.
-    prob_long, _ = solving_longitudinal.main()
+    prob_long, _, _ = solving_longitudinal.main()
 
     # Whole-mission V(t) and h(t) history (climb + cruise + descent, starting at t=0),
     # taken from the solved (collocated) longitudinal trajectory - no traj.simulate()

@@ -15,10 +15,10 @@ def stitch(varname, prob):
 
 start_date = datetime(2027, 1, 1, 6, 0)
 end_date = datetime(2028, 1, 1, 6, 0)
-dday = 90
+dday = 20
 N_lat = 60
 S_lat = -60
-dlat = 30
+dlat = 15
 
 def filtering_yearly_mean_power_contour():
     """Like `yearly_mean_power_contour` but filter cells where available
@@ -54,11 +54,16 @@ def filtering_yearly_mean_power_contour():
             current_lat = lat
             day_number = day_numbers[day_idx]
 
-            prob, exp_out = solving_longitudinal.main(M_sw=3.7, mbat_sw=2.0, start_date=current_day, lat=current_lat, soc_initial=0.2)
+            prob, exp_out, success = solving_longitudinal.main(M_sw=3.7, mbat_sw=2.0, start_date=current_day, lat=current_lat, soc_initial=0.2)
+
+            if not success:
+                SOC_distribution[lat_idx, day_idx] = -1
+                print(f'Optimization failed at latitude {current_lat:.2f} deg, day {day_number}/{total_days}: SOC = -1')
+                continue
 
             SOC_array = stitch('SOC', prob)
             SOC = 1 - (max(SOC_array) - SOC_array[-1]) if max(SOC_array) > 1 else SOC_array[-1]
-            SOC_distribution[lat_idx, day_idx] = SOC if SOC > 0.2 else -1
+            SOC_distribution[lat_idx, day_idx] = SOC if SOC > 0.2 else 0
 
             print(f'Processed latitude {current_lat:.2f} deg, day {day_number}/{total_days}: mean power = {SOC_distribution[lat_idx, day_idx]:.2f} W/m^2')
 

@@ -88,13 +88,11 @@ class LongitudinalODE(om.Group):
         # Dymos objectives take a single named variable, not an expression, so the
         # difference is computed here as its own ODE output and integrated as its own
         # state (Net_sw_int) below - same pattern as DV_sw_int/Psol_sw_int.
-        self.add_subsystem('net', om.ExecComp('Net_sw = Psol_sw - DV_sw - TV_sw + Epot_sw',
+        self.add_subsystem('net', om.ExecComp('Net_sw = Psol_sw - TV_sw',
                                                Net_sw={'units': 'W/m**2', 'shape': (nn,)},
                                                Psol_sw={'units': 'W/m**2', 'shape': (nn,)},
-                                               DV_sw={'units': 'W/m**2', 'shape': (nn,)},
-                                               TV_sw={'units': 'W/m**2', 'shape': (nn,)},
-                                               Epot_sw={'units': 'W/m**2', 'shape': (nn,)}),
-                            promotes=['Net_sw', 'Psol_sw', 'DV_sw', 'TV_sw', 'Epot_sw'])
+                                               TV_sw={'units': 'W/m**2', 'shape': (nn,)}),
+                            promotes=['Net_sw', 'Psol_sw', 'TV_sw'])
         self.add_subsystem('battery', module_battery.StateOfCharge(
                                 num_nodes=nn, mbat_sw=opts['mbat_sw'], mb=opts['mb'], mu_e=opts['mu_e'], mu_LS=opts['mu_LS']),
                             promotes_inputs=['SOC', 'Net_sw'], promotes_outputs=['SOC_dot'])
@@ -324,6 +322,11 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     elapsed = time.perf_counter() - start_time
     print(f"Elapsed time: {elapsed:.2f} seconds")
 
+    # Driver exit status - False if IPOPT did not converge (infeasible, max_iter, etc.)
+    success = bool(prob.driver.result.success)
+    if not success:
+        print(f'WARNING: optimization did not complete successfully (exit status: {prob.driver.result.exit_status})')
+
     # Generate the explicitly simulated trajectory - comment out the traj.simulate() call
     # (e.g. while iterating on the solve itself) to skip it; plot_longitudinal then just
     # plots the solution, with no simulation curves and no warnings.
@@ -353,7 +356,7 @@ def main(*, M_sw=3.7, mbat_sw=2.0, start_date=datetime(2012, 6, 1, 6, 0), lat=37
     with open(paths_file, 'w') as f:
         json.dump(paths, f, indent=2)
 
-    return prob, exp_out
+    return prob, exp_out, success
 
 
 if __name__ == '__main__':
