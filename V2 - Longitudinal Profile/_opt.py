@@ -216,8 +216,9 @@ if __name__ == '__main__':
 
     N_lat = 60
     S_lat = -60
-    dlat = 10
+    dlat = 5
 
     latitudes_array = np.arange(S_lat, N_lat + dlat, dlat, dtype=float)
 
     filtering_yearly_mean_power_contour(x0, year, latitudes_array)
+    a=1
